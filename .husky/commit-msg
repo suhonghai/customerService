@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# Multi-project commit-msg hook.
+# Detects which project the staged files belong to and runs commitlint there.
+set -e
+
+ROOT=$(git rev-parse --show-toplevel)
+staged=$(git diff --cached --name-only)
+
+if echo "$staged" | grep -q '^W9-10-customer-service/ai-cs-demo/'; then
+  (cd "$ROOT/W9-10-customer-service/ai-cs-demo" && pnpm commitlint --edit "$1")
+else
+  (cd "$ROOT/W11-erp-admin" && pnpm commitlint --edit "$1")
+fi

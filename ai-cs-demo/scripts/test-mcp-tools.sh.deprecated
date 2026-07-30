@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+#
+# MCP 工具单测:启 server,跑 12 个 case(happy + error)
+# 用法:bash scripts/test-mcp-tools.sh
+# 退出码:0 = 全过,1 = 有失败
+#
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ALLOWED="${MCP_ALLOWED_ROOTS:-/Users/suesea/sueSea/agents}"
+cd "$ROOT"
+
+PASS=0
+FAIL=0
+FAILED_CASES=()
+
+run_case() {
+  local name="$1"
+  local payload="$2"
+  local expect_field="$3"   # e.g. "isError=true" / "content.0.text 含 /path"
+  local expect_contains="$4"
+
+  echo "── $name ──"
+  local response
+  response=$(MCP_ALLOWED_ROOTS="$ALLOWED" timeout 10 pnpm mcp:dev 2>/dev/null <<EOF | grep -E '^\{"' | tail -1
+$payload
+EOF
+)
+
+  if echo "$response" | grep -q "$expect_field" && \
+     { [ -z "$expect_contains" ] || echo "$response" | grep -q "$expect_contains"; }; then
+    echo "  ✅ PASS"
+    PASS=$((PASS + 1))
+  else
+    echo "  ❌ FAIL"
+    echo "  expect: $expect_field $expect_contains"
+    echo "  got:    $response" | head -c 300
+    echo ""
+    FAIL=$((FAIL + 1))
+    FAILED_CASES+=("$name")
+  fi
+}
+
+INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}'
+NOTIF='{"jsonrpc":"2.0","method":"notifications/initialized"}'
+
+# 6 happy paths
+run_case "read_file 读 package.json" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"W7-8-agent/ai-agent-demo/package.json\"}}}" \
+  "result" "ai-agent-demo"
+
+run_case "write_file 写 tmp + read 回读" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"write_file\",\"arguments\":{\"path\":\"W7-8-agent/ai-agent-demo/tmp-test.txt\",\"content\":\"hi-mcp\"}}}
+{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"W7-8-agent/ai-agent-demo/tmp-test.txt\"}}}" \
+  "hi-mcp" ""
+
+run_case "list_dir 列 AI-agents" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_dir\",\"arguments\":{\"path\":\"AI-agents\"}}}" \
+  "result" "learning-roadmap.md"
+
+run_case "grep 搜 'McpServer'" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"grep\",\"arguments\":{\"pattern\":\"McpServer\",\"path\":\"W7-8-agent/ai-agent-demo/scripts\",\"glob\":\"*.ts\"}}}" \
+  "result" "local-dev-tools.ts"
+
+run_case "git_status 看 agents 仓库" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"git_status\",\"arguments\":{\"cwd\":\".\"}}}" \
+  "result" ""
+
+run_case "git_diff 看自己" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"git_diff\",\"arguments\":{\"cwd\":\".\",\"file\":\"W7-8-agent/ai-agent-demo/scripts/mcp-servers/local-dev-tools.ts\"}}}" \
+  "result" ""
+
+# 6 error paths
+run_case "read_file 越界 /etc/passwd" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"/etc/passwd\"}}}" \
+  "isError\":true" "outside allowed roots"
+
+run_case "write_file 越界 /etc" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"write_file\",\"arguments\":{\"path\":\"/etc/test.txt\",\"content\":\"x\"}}}" \
+  "isError\":true" "outside allowed roots"
+
+run_case "list_dir 不存在" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_dir\",\"arguments\":{\"path\":\"/nonexistent-dir-xyz\"}}}" \
+  "isError\":true" ""
+
+run_case "grep 无效 pattern" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"grep\",\"arguments\":{\"pattern\":\"[invalid(regex\",\"path\":\"AI-agents\"}}}" \
+  "grep failed" ""
+
+run_case "git_status 非仓库" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"git_status\",\"arguments\":{\"cwd\":\"/tmp\"}}}" \
+  "isError\":true" ""
+
+run_case "git_diff 非仓库" \
+  "$INIT
+$NOTIF
+{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"git_diff\",\"arguments\":{\"cwd\":\"/tmp\"}}}" \
+  "isError\":true" ""
+
+# 清理
+rm -f /Users/suesea/sueSea/agents/W7-8-agent/ai-agent-demo/tmp-test.txt
+
+echo ""
+echo "=========================="
+echo "PASS: $PASS / 12"
+echo "FAIL: $FAIL"
+if [ $FAIL -gt 0 ]; then
+  echo "失败 case:"
+  for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done
+  exit 1
+fi
+echo "✅ 12/12 全过"

@@ -1,0 +1,8 @@
+/**
+ * W11 ERP entry stylesheet.
+ * 全部样式在 styles/global.css + styles/tokens.css(设计系统)。
+ * 这里只做最小入口。
+ */
+
+@import './styles/tokens.css';
+@import './styles/global.css';

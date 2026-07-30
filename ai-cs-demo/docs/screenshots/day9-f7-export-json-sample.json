@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "exportedAt": "2026-06-16T00:41:24.268Z",
+  "session": {
+    "id": "OEnpJVjQkx",
+    "title": "帮我查 #002 订单的物流,顺便看下 #003",
+    "createdAt": 1781245767332,
+    "updatedAt": 1781570466499,
+    "createdAtISO": "2026-06-12T06:29:27.332Z",
+    "updatedAtISO": "2026-06-16T00:41:06.499Z",
+    "messages": [
+      {
+        "parts": [
+          {
+            "type": "text",
+            "text": "帮我查 #002 订单的物流,顺便看下 #003"
+          }
+        ],
+        "id": "XcQPGlyNoDT6Sdyc",
+        "role": "user"
+      },
+      {
+        "id": "zfzh42wI5j1CAWOZ",
+        "metadata": {
+          "tools": {
+            "list": [
+              "search_faq",
+              "get_user_order",
+              "create_ticket",
+              "escalate_to_human"
+            ],
+            "count": 4
+          },
+          "retrieval": {
+            "query": "帮我查 #002 订单的物流,顺便看下 #003",
+            "topK": 3,
+            "results": [],
+            "error": null
+          }
+        },
+        "role": "assistant",
+        "parts": [
+          {
+            "type": "step-start"
+          },
+          {
+            "type": "reasoning",
+            "text": "用户要求查询两个订单 #002 和 #003 的物流信息。根据工具使用决策,用户问订单/物流/退款进度 → 必须先调 get_user_order。两个订单查询相互独立,可以并行调用。\n",
+            "providerMetadata": {
+              "openai": {
+                "itemId": "msg_d863421f-24e4-4570-bdf9-a9e1a4bd2243",
+                "reasoningEncryptedContent": null
+              }
+            },
+            "state": "done"
+          },
+          {
+            "type": "dynamic-tool",
+            "toolName": "get_user_order",
+            "toolCallId": "call_9b3f547572ed45df9c6b7e05",
+            "state": "output-available",
+            "input": {
+              "orderId": "002"
+            },
+            "output": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\n  \"order\": {\n    \"id\": \"002\",\n    \"status\": \"已发货\",\n    \"createdAt\": \"2026-06-03T15:42:00+08:00\",\n    \"items\": [\n      {\n        \"name\": \"智能手表 Series X\",\n        \"sku\": \"WTCH-SX-SLV\",\n        \"qty\": 1,\n        \"price\": 2499\n      }\n    ],\n    \"total\": 2499,\n    \"trackingNumber\": \"SF1234567890\",\n    \"shippingStatus\": \"运输中\"\n  }\n}"
+                }
+              ],
+              "isError": false
+            },
+            "toolMetadata": {
+              "clientName": "ai-sdk-mcp-client"
+            }
+          },
+          {
+            "type": "dynamic-tool",
+            "toolName": "get_user_order",
+            "toolCallId": "call_095b40e43c894b7c8a2e10cb",
+            "state": "output-available",
+            "input": {
+              "orderId": "003"
+            },
+            "output": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\n  \"order\": {\n    \"id\": \"003\",\n    \"status\": \"已签收\",\n    \"createdAt\": \"2026-05-28T09:15:00+08:00\",\n    \"items\": [\n      {\n        \"name\": \"机械键盘 87 键\",\n        \"sku\": \"KB-87-RGB\",\n        \"qty\": 1,\n        \"price\": 599\n      },\n      {\n        \"name\": \"鼠标垫 XL\",\n        \"sku\": \"PAD-XL-BLK\",\n        \"qty\": 2,\n        \"price\": 49\n      }\n    ],\n    \"total\": 697,\n    \"trackingNumber\": \"YT9876543210\",\n    \"shippingStatus\": \"已签收\"\n  }\n}"
+                }
+              ],
+              "isError": false
+            },
+            "toolMetadata": {
+              "clientName": "ai-sdk-mcp-client"
+            }
+          },
+          {
+            "type": "step-start"
+          },
+          {
+            "type": "text",
+            "text": "查到了,两个订单的情况如下:\n\n---\n\n**订单 #002** - 智能手表 Series X\n- 状态:已发货,运输中\n- 物流单号:**SF1234567890**(顺丰)\n- 下单时间:2026-06-03\n\n**订单 #003** - 机械键盘 87 键 + 鼠标垫 XL × 2\n- 状态:已签收 ✅\n- 物流单号:**YT9876543210**(圆通)\n- 下单时间:2026-05-28\n\n---\n\n#002 还在路上,你可以用顺丰单号去查实时位置;#003 已经签收了,有什么需要处理的吗?",
+            "providerMetadata": {
+              "openai": {
+                "itemId": "msg_de4d1e7a-1119-4244-8b0a-76c0dc193d56"
+              }
+            },
+            "state": "done"
+          }
+        ]
+      }
+    ]
+  }
+}

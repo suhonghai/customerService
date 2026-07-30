@@ -1,0 +1,53 @@
+# W9-10 ai-cs-demo — .dockerignore
+
+# Build artifacts(在 image 内重新生成)
+node_modules
+.next
+out
+build
+coverage
+
+# Logs / runtime data
+logs
+*.log
+data
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+*.swp
+*.suo
+
+# Playwright e2e 缓存
+.playwright-mcp
+test-results
+playwright-report
+
+# Docker 自身递归(注:entrypoint.sh 必须保留给 COPY 进 image)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI / 部署
+.github
+deploy
+README.md
+CLAUDE.md
+
+# Typescript cache
+*.tsbuildinfo
+
+# scripts/mcp 等开发时跑的东西不进 image
+# 2026-07-10: production 镜像需要 spawn MCP subprocess,改回保留 scripts/
+# scripts

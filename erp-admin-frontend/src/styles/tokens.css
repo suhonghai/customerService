@@ -1,0 +1,199 @@
+/**
+ * W11 ERP Design Tokens — Editorial Magazine / Print-Inspired
+ *
+ * Stripe Press meets Linear Changelog.
+ * 暖白米黄底 + Fraunces 衬线 display + 单一暖琥珀强调。
+ * 长时间使用不疲劳,有"印刷品"质感。
+ */
+
+:root,
+:root[data-theme='light'] {
+  /* ── Surface ─────────────────────────────── */
+  --bg-app: #faf8f3; /* 暖米白(主背景) */
+  --bg-canvas: #ffffff; /* 纯白卡片 */
+  --bg-elevated: #ffffff;
+  --bg-sunken: #f5f3ec; /* 深米 */
+  --bg-hover: #faf8f3;
+  --bg-active: #f0ede2;
+  --bg-inverse: #1a1a1a;
+  --bg-overlay: rgba(26, 26, 26, 0.45);
+
+  /* ── Border ─────────────────────────────── */
+  --border-thin: 1px solid #f0ede2;
+  --border-default: 1px solid #e8e3d2;
+  --border-strong: 1px solid #1a1a1a;
+  --border-color: #e8e3d2;
+  --border-inverse: 1px solid #1a1a1a;
+
+  /* ── Soft Shadow (接近无阴影,outline-like) ── */
+  --shadow-xs: 0 1px 2px rgba(26, 26, 26, 0.03);
+  --shadow-sm: 0 1px 3px rgba(26, 26, 26, 0.04), 0 0 0 1px rgba(26, 26, 26, 0.03);
+  --shadow-md: 0 2px 8px rgba(26, 26, 26, 0.06), 0 0 0 1px rgba(26, 26, 26, 0.03);
+  --shadow-lg: 0 6px 16px rgba(26, 26, 26, 0.08), 0 0 0 1px rgba(26, 26, 26, 0.04);
+  --shadow-focus: 0 0 0 3px rgba(57, 73, 171, 0.18);
+
+  /* ── Text ───────────────────────────────── */
+  --text-primary: #1a1a1a;
+  --text-regular: #404040;
+  --text-secondary: #737373;
+  --text-tertiary: #a3a3a3;
+  --text-placeholder: #c0c0c0;
+  --text-disabled: #d4d4d4;
+  --text-inverse: #faf8f3;
+  --text-link: #3949ab;
+
+  /* ── Primary(暖靛蓝,克制专业) ─────────────── */
+  --color-primary: #3949ab;
+  --color-primary-light: #5c6bc0;
+  --color-primary-lighter: #c5cae9;
+  --color-primary-dark: #283593;
+  --color-primary-darker: #1a237e;
+
+  /* ── Accent(单一暖琥珀,唯一强调色) ───────── */
+  --color-accent: #d97706;
+  --color-accent-light: #f59e0b;
+  --color-accent-lighter: #fed7aa;
+
+  /* ── Status(克制,无大色块) ────────────── */
+  --color-success: #059669;
+  --color-success-bg: #ecfdf5;
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-bg: #fef2f2;
+  --color-info: #737373;
+  --color-info-bg: #f5f3ec;
+
+  /* ── Tag (Fraunces uppercase + dot) ─────────── */
+  --tag-success-fg: #047857;
+  --tag-success-bg: #ecfdf5;
+  --tag-warning-fg: #92400e;
+  --tag-warning-bg: #fffbeb;
+  --tag-danger-fg: #991b1b;
+  --tag-danger-bg: #fef2f2;
+  --tag-info-fg: #404040;
+  --tag-info-bg: #f5f3ec;
+  --tag-primary-fg: #3949ab;
+  --tag-primary-bg: #eef2ff;
+
+  /* ── Radius ─────────────────────────────── */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-pill: 9999px;
+
+  /* ── Spacing (大留白) ─────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ── Typography ─────────────────────────── */
+  --font-display: 'Fraunces', 'Times New Roman', 'Songti SC', Georgia, serif;
+  --font-body:
+    'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  --font-label: 'Fraunces', Georgia, serif;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+  --text-4xl: 44px;
+  --text-5xl: 56px;
+
+  /* ── Layout (宽松) ─────────────────────── */
+  --sider-width: 232px;
+  --sider-collapsed: 64px;
+  --header-height: 60px;
+  --content-padding: 32px;
+
+  /* ── Motion ─────────────────────────────── */
+  --ease-out: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --duration-fast: 150ms;
+  --duration-base: 240ms;
+  --duration-slow: 360ms;
+}
+
+:root[data-theme='dark'] {
+  /* ── Surface ─────────────────────────────── */
+  --bg-app: #0f0f0f;
+  --bg-canvas: #171717;
+  --bg-elevated: #1f1f1f;
+  --bg-sunken: #0a0a0a;
+  --bg-hover: #1f1f1f;
+  --bg-active: #262727;
+  --bg-inverse: #faf8f3;
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+
+  /* ── Border ─────────────────────────────── */
+  --border-thin: 1px solid #262727;
+  --border-default: 1px solid #2e2e2e;
+  --border-strong: 1px solid #faf8f3;
+  --border-color: #2e2e2e;
+  --border-inverse: 1px solid #faf8f3;
+
+  /* ── Shadow ─────────────────────────────── */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-lg: 0 6px 16px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-focus: 0 0 0 3px rgba(129, 140, 248, 0.25);
+
+  /* ── Text ───────────────────────────────── */
+  --text-primary: #fafaf9;
+  --text-regular: #d4d4d4;
+  --text-secondary: #a3a3a3;
+  --text-tertiary: #737373;
+  --text-placeholder: #525252;
+  --text-disabled: #404040;
+  --text-inverse: #0f0f0f;
+  --text-link: #818cf8;
+
+  /* ── Primary (靛蓝 light,深色模式更亮) ───── */
+  --color-primary: #818cf8;
+  --color-primary-light: #a5b4fc;
+  --color-primary-lighter: #312e81;
+  --color-primary-dark: #6366f1;
+  --color-primary-darker: #4f46e5;
+
+  /* ── Accent ───────────────────────────── */
+  --color-accent: #fbbf24;
+  --color-accent-light: #fcd34d;
+  --color-accent-lighter: #78350f;
+
+  /* ── Status (dark variant) ──────────────── */
+  --color-success: #34d399;
+  --color-success-bg: rgba(52, 211, 153, 0.12);
+  --color-warning: #fbbf24;
+  --color-warning-bg: rgba(251, 191, 36, 0.12);
+  --color-danger: #f87171;
+  --color-danger-bg: rgba(248, 113, 113, 0.12);
+  --color-info: #a3a3a3;
+  --color-info-bg: rgba(163, 163, 163, 0.12);
+
+  /* ── Tag ───────────────────────────────── */
+  --tag-success-fg: #34d399;
+  --tag-success-bg: rgba(52, 211, 153, 0.12);
+  --tag-warning-fg: #fbbf24;
+  --tag-warning-bg: rgba(251, 191, 36, 0.12);
+  --tag-danger-fg: #f87171;
+  --tag-danger-bg: rgba(248, 113, 113, 0.12);
+  --tag-info-fg: #d4d4d4;
+  --tag-info-bg: rgba(163, 163, 163, 0.12);
+  --tag-primary-fg: #a5b4fc;
+  --tag-primary-bg: rgba(129, 140, 248, 0.12);
+}

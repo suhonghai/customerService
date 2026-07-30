@@ -1,0 +1,24 @@
+# =============================================================================
+# W11 ERP Admin — dev overlay
+# 本机 dev 模式:base 暴露 mysql/chroma 端口,ai-cs-demo 用 docker 跑
+# (源码挂载,改代码 hot reload)
+# backend / erp-admin-frontend 仍由 pnpm dev 在本机起
+# =============================================================================
+
+# 暴露 base 的 mysql/chroma 端口到 host(本机 pnpm dev 连接用)
+services:
+  mysql:
+    ports:
+      - "127.0.0.1:${MYSQL_PORT}:3306"
+  chroma:
+    ports:
+      - "127.0.0.1:${CHROMA_PORT}:8000"
+
+  ai-cs-demo:
+    # dev:挂载源码 + node_modules + .next(改代码 hot reload)
+    volumes:
+      - ./ai-cs-demo:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "127.0.0.1:${AI_CS_PORT:-9529}:9529"

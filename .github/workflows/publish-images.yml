@@ -1,0 +1,154 @@
+# ======================================================================================
+# Workflow: Publish Docker Images (W11 ERP Admin)
+# ======================================================================================
+# Adapted from skillhub .github/workflows/publish-images.yml.
+#
+# Differences vs skillhub baseline:
+#   - 3 images (not 4): drops `scanner` (W11 has no Python scanner service).
+#     Keeps erp-admin-backend (NestJS), erp-admin-frontend (Vite SPA), and
+#     ai-cs-demo (Next.js, lives in sibling repo `../W9-10-customer-service/`).
+#   - Single-arch: `DOCKER_PLATFORMS: linux/amd64` only. W11 deploy target is
+#     Tencent Cloud amd64; cross-arch deferred until there's actual demand.
+#   - All third-party actions pinned by full 40-char commit SHA (W11 convention;
+#     skillhub baseline uses floating tags).
+#
+# Tag scheme (handled by docker/metadata-action):
+#   - `latest` on main branch release (is_default_branch)
+#   - `vX.Y.Z` (semver full) on tagged release
+#   - `vX.Y` (semver major.minor) on tagged release
+#   - `sha-xxxxxxx` (short SHA) on every build
+#   - `<branch-name>` (type=ref,event=branch) on workflow_dispatch
+#
+# Optional mirror: if MIRROR_REGISTRY / MIRROR_NAMESPACE / MIRROR_REGISTRY_USERNAME
+# / MIRROR_REGISTRY_PASSWORD secrets are all set, the same images are also pushed
+# to a private mirror (Aliyun / Harbor / Docker Hub / etc.). Leave unset to skip.
+# ======================================================================================
+
+name: Publish Images
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-images-${{ github.event.release.tag_name || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+  # Single-arch: W11 deploys to Tencent Cloud amd64. Revisit when arm64 demand
+  # actually shows up (cross-arch buildx doubles build time).
+  DOCKER_PLATFORMS: linux/amd64
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.image.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Optional mirror registry. Configured via these 4 secrets. Set them to any
+      # private registry — Aliyun, Docker Hub, internal Harbor, etc. — to enable
+      # mirroring; leave unset to skip the mirror step entirely.
+      MIRROR_REGISTRY: ${{ secrets.MIRROR_REGISTRY }}
+      MIRROR_NAMESPACE: ${{ secrets.MIRROR_NAMESPACE }}
+      MIRROR_REGISTRY_USERNAME: ${{ secrets.MIRROR_REGISTRY_USERNAME }}
+      MIRROR_REGISTRY_PASSWORD: ${{ secrets.MIRROR_REGISTRY_PASSWORD }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: erp-admin-backend
+            context: ./erp-admin-backend
+            dockerfile: ./erp-admin-backend/Dockerfile
+            mirror_image: erp-admin-backend
+          - name: erp-admin-frontend
+            context: ./erp-admin-frontend
+            dockerfile: ./erp-admin-frontend/Dockerfile
+            mirror_image: erp-admin-frontend
+          - name: ai-cs-demo
+            # ai-cs-demo is part of the W11 monorepo (was copied from V1/W9-10
+            # into ./ai-cs-demo). Build context is the package directory; the
+            # Dockerfile lives alongside package.json at ai-cs-demo/Dockerfile.
+            context: ./ai-cs-demo
+            dockerfile: ai-cs-demo/Dockerfile
+            mirror_image: ai-cs-demo
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect mirror configuration
+        id: mirror
+        shell: bash
+        run: |
+          if [[ -n "${MIRROR_REGISTRY}" && -n "${MIRROR_NAMESPACE}" && -n "${MIRROR_REGISTRY_USERNAME}" && -n "${MIRROR_REGISTRY_PASSWORD}" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to mirror registry
+        if: ${{ steps.mirror.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          echo "${MIRROR_REGISTRY_PASSWORD}" | docker login "${MIRROR_REGISTRY}" \
+            --username "${MIRROR_REGISTRY_USERNAME}" \
+            --password-stdin
+
+      - name: Prepare image targets
+        id: targets
+        run: |
+          {
+            echo "images<<EOF"
+            echo "${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ matrix.image.name }}"
+            if [ "${{ steps.mirror.outputs.enabled }}" = "true" ]; then
+              echo "${MIRROR_REGISTRY%/}/${MIRROR_NAMESPACE}/${{ matrix.image.mirror_image }}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ steps.targets.outputs.images }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short,prefix=sha-
+
+      - name: Build and push ${{ matrix.image.name }}
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          platforms: ${{ env.DOCKER_PLATFORMS }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}

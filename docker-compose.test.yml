@@ -1,0 +1,103 @@
+# =============================================================================
+# W11 ERP Admin — test overlay
+# 5 服务全 docker(CI / 集成测试)
+# 子项目 secrets 走 env_file 加载子项目 .env.test
+# =============================================================================
+
+services:
+  mysql:
+    ports:
+      - "127.0.0.1:${MYSQL_PORT}:3306"
+
+  chroma:
+    ports:
+      - "127.0.0.1:${CHROMA_PORT}:8000"
+
+  erp-admin-backend:
+    build:
+      context: ./erp-admin-backend
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: test
+        BUILD_ENV: test
+    image: w11-backend:test
+    container_name: ${COMPOSE_PROJECT_NAME}-backend
+    # 子项目自己的 secrets / DB URL / Chroma URL 走 env_file
+    env_file:
+      - ./erp-admin-backend/.env.test
+    # compose 编排层强制覆盖(端口 / 容器内 host / build env)
+    environment:
+      NODE_ENV: test
+      PORT: 3001
+      # 容器内 mysql / chroma 走 docker DNS,覆盖子项目里 host=127.0.0.1 的 URL
+      DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      CHROMA_URL: http://chroma:8000
+    ports:
+      - "127.0.0.1:${BACKEND_PORT}:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    networks:
+      - w11-net
+    volumes:
+      - backend_uploads:/data/uploads
+      - backend_logs:/data/logs/erp-admin
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3001/api/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  erp-admin-frontend:
+    build:
+      context: ./erp-admin-frontend
+      dockerfile: Dockerfile
+      args:
+        BUILD_ENV: test
+    image: w11-frontend:test
+    container_name: ${COMPOSE_PROJECT_NAME}-frontend
+    env_file:
+      - ./erp-admin-frontend/.env.test
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT}:80"
+    depends_on:
+      - erp-admin-backend
+    networks:
+      - w11-net
+    restart: unless-stopped
+
+  ai-cs-demo:
+    build:
+      context: ./ai-cs-demo
+      dockerfile: Dockerfile
+      args:
+        APP_ENV: test
+    image: w11-ai-cs-demo:test
+    container_name: ${COMPOSE_PROJECT_NAME}-ai-cs-demo
+    env_file:
+      - ./ai-cs-demo/.env.test
+    environment:
+      APP_ENV: test
+      NODE_ENV: test
+      PORT: 9529
+      # 容器内走 docker DNS
+      ERP_ADMIN_URL: http://erp-admin-backend:3001
+      CHROMA_URL: http://chroma:8000
+    ports:
+      - "127.0.0.1:${AI_CS_PORT}:9529"
+    depends_on:
+      - erp-admin-backend
+      - chroma
+    networks:
+      - w11-net
+    restart: unless-stopped
+
+volumes:
+  backend_uploads:
+    name: ${COMPOSE_PROJECT_NAME}-backend-uploads
+  backend_logs:
+    name: ${COMPOSE_PROJECT_NAME}-backend-logs

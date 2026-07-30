@@ -1,0 +1,643 @@
+import type { ToolExecutionOptions, ToolSet } from 'ai';
+import {
+  streamText,
+  convertToModelMessages,
+  UIMessage,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  stepCountIs,
+} from 'ai';
+import { qwenChat, initAiFromErpAdmin } from '@/lib/ai';
+import { peekCachedAiConfig } from '@/lib/ai-config';
+import { search } from '@/lib/rag';
+import { createMcpStdioClient } from '@/lib/agent/mcp-client';
+import { getErpAdminClient } from '@/lib/erp-admin-client';
+
+export const runtime = 'nodejs';
+export const maxDuration = 60; // 升级:Agent 可能多步,给足时间
+
+interface TextPart {
+  type: string;
+  text?: string;
+}
+
+/**
+ * W9-10 Day 6 (F3b):客服对话路由 —— RAG + MCP 4 工具 + 服务端持久化
+ *
+ * 设计(沿用 W5-6 的 Agent 模式 + 客服场景改造):
+ *  1. 同步阶段调 search(query, topK) → 拼 system prompt 注入 [1][2][3] 资料(给 AI 起点)
+ *  2. 同步阶段起 MCP client(stdio 拉起 customer-service.ts)→ listTools() 拿 4 工具
+ *  3. streamText 4 参数:
+ *     - tools: MCP 4 工具(search_faq / get_user_order / create_ticket / escalate_to_human)
+ *     - stopWhen: stepCountIs(5):多步推理(AI 可「思考→调工具→看结果→再思考」)
+ *  4. 流末尾发 2 个 message-metadata:retrieval(检索详情) + tools(工具列表)
+ *  5. onStepFinish 打日志,审计工具调用
+ *  6. MCP client 在 stream finally 关闭(子进程释放)
+ *
+ * W9-10 Day 10+ 重构:服务端持久化(streaming 期间每 500ms 节流 PATCH,流结束 status=1 done)。
+ *  - 前端不再做 upsert / append / update,只用 useChat 默认 transport
+ *  - tab 关后端继续写,刷新从 GET /api/sessions/[id]/history 拉回
+ *
+ * RAG vs MCP search_faq 分工:
+ *  - RAG 是被动注入(system 里直接塞 [1][2][3],首步就用)
+ *  - MCP search_faq 是主动调用(AI 判断资料不够才调,topK 1-10)
+ *  - 功能重叠但用法互补
+ *
+ * 范围红线(W9-10 阶段内):
+ *  - 只做 MCP 工具集成;不动前端 UI(Day 7 才动决策过程面板 / 错误兜底)
+ */
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json()) as {
+      message?: string;
+      messages?: UIMessage[];
+      sessionId?: string;
+      sessionKey?: string; // 前端稳定的会话键(per browser,持久),upsert 用
+      visitorId?: string; // 前端稳定访客 id(localStorage 兜底),upsert 用
+      userId?: number | null; // V1 S5:已登录用户的 userId,落到 cs_session.userId
+      customerId?: number | null; // W11:C 端 CsCustomer.id,落到 cs_session.customerId(和 userId 互斥)
+      topK?: number;
+    };
+    const topK = body.topK ?? 3;
+
+    // 兼容两种 payload shape:
+    //  1) { messages: UIMessage[] } — AI SDK 6.x 客户端(多轮历史)
+    //  2) { message: string }        — 早期 / 自定义客户端(单条)
+    // 两种都缺 → 400,不再 500
+    let messages: UIMessage[];
+    if (Array.isArray(body.messages) && body.messages.length > 0) {
+      messages = body.messages;
+    } else if (typeof body.message === 'string' && body.message.trim().length > 0) {
+      messages = [
+        {
+          id: `m_${Date.now()}`,
+          role: 'user',
+          parts: [{ type: 'text', text: body.message }],
+        } as unknown as UIMessage,
+      ];
+    } else {
+      return new Response(
+        JSON.stringify({ error: 'payload must include `message` (string) or `messages` (array)' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // 拿最后一条用户消息作为查询(防御:加 ?? [])
+    const lastUserMessage = [...messages].reverse().find((m) => m && m.role === 'user');
+    const queryText =
+      (lastUserMessage?.parts ?? [])
+        .filter((p: TextPart) => p && p.type === 'text' && typeof p.text === 'string')
+        .map((p: TextPart) => p.text)
+        .join('') || '';
+
+    // ============= 同步阶段 0:服务端持久化准备(upsertSession + append user + assistant placeholder) =============
+    // sessionKey 没传 → 用最后一条 user 消息 id 作 fallback(每次都新 session,不理想但能跑)
+    // visitorId 必传(前端用 localStorage 保证稳定,server-side fallback 用 "server-anon-<random>")
+    const sessionKey =
+      body.sessionKey?.trim() || `server-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const visitorId = body.visitorId?.trim() || `srv-${sessionKey.slice(0, 12)}`;
+
+    const erp = getErpAdminClient();
+    let sessionId: number;
+    let assistantMsgId: number = -1;
+    try {
+      // V1 S5:已登录时把 userId 透传到 upsertSession,后端落到 cs_session.userId
+      // 未登录(V1.0 admin 演示)留 null,cs_session.userId 仍为 NULL
+      const session = await erp.upsertSession({
+        sessionKey,
+        visitorId,
+        userId: typeof body.userId === 'number' ? body.userId : undefined,
+        // W11:C 端登录时把 customerId 单独透传,后端写到 cs_session.customerId;
+        // listOrdersBySession 看到这个非空就走 Order.customer_id 过滤(避开 CsCustomer.id
+        // 撞 User.id 命名空间的 bug)
+        customerId: typeof body.customerId === 'number' ? body.customerId : undefined,
+      });
+      sessionId = session.id;
+
+      // 落 user message(只在「最后一条 user 是新的、没在 messages 里出现过 user role 时」才 append?
+      // 这里简化:每次都 append — 如果前端发了历史 messages,后端会按 id ASC 一致累加。
+      // 如果用户重复发同一条(刷新场景下 click send),会重复 — 但 sendMessage 是创建新 UIMessage,
+      // 不会重复,安全。
+      await erp.appendMessage(sessionId, {
+        role: 'user',
+        content: queryText,
+        parts: (lastUserMessage as unknown as { parts?: TextPart[] })?.parts ?? [],
+        status: 1,
+      });
+
+      // ============= W11 C3 (shared thread):转人工检测 — AI 闭嘴(必须在 placeholder 之前) =============
+      //   业务:session 已 open 工单(已转人工)→ 客户发的后续消息不再调 LLM,
+      //   直接通过 appendMessage(user) 走 backend 的 user_message WS emit,
+      //   erp-admin ConversationPanel 实时看到,真人回复走 operator_reply。
+      //   行为:不调 streamText、不调 RAG、不起 MCP client(省 token + 时间)。
+      //   前端:仍走 createUIMessageStream 返一条合成 assistant "运营正在处理您的消息,请稍候。"
+      //   — useChat 默认 transport 完全兼容,前端无需改。
+      //
+      //   关键:ack 路径必须 **不** 创建 assistant placeholder(空 status=2 行) —
+      //   否则 cs_message 留下 status=2 content='' 死行,history refetch 时 m.parts 无 text
+      //   → text 空 → page.tsx line 1244 的 !text 重试兜底误触发。
+      //   真人回复走 operator_reply(已有 bridge + WS emit),不需要 placeholder 占位。
+      if (sessionId > 0) {
+        try {
+          const openTicket = await erp.getSessionOpenTicket(sessionId);
+          if (openTicket && (openTicket as unknown as { ticketNo?: string }).ticketNo) {
+            const ackText = '运营正在处理您的消息,请稍候。';
+            console.log(
+              `[chat] in-human-handoff sessionId=${sessionId} ticketNo=${openTicket.ticketNo} → AI 闭嘴`,
+            );
+            // user 消息已在上面 append 过(role=user, status=1,backend emit user_message WS),
+            // 这里只合成一条 assistant ack 给前端 useChat 渲染。
+            // 注意:不再 append assistant 消息到 backend — 真人回复会走 operator_reply(走 cs_message bridge),
+            // 避免重复,也避免 status=2 空行。
+            const ackStream = createUIMessageStream({
+              originalMessages: messages,
+              execute: async ({ writer }) => {
+                const id = `ack-${Date.now()}`;
+                writer.write({ type: 'start', messageId: id });
+                writer.write({ type: 'text-start', id });
+                writer.write({ type: 'text-delta', id, delta: ackText });
+                writer.write({ type: 'text-end', id });
+                writer.write({ type: 'finish' });
+              },
+            });
+            return createUIMessageStreamResponse({ stream: ackStream });
+          }
+        } catch (e) {
+          // best-effort:handoff 检测失败不能让 AI 答不上(best-effort 网络探测),fall through 走 LLM
+          console.warn('[chat] open-ticket probe failed:', (e as Error).message);
+        }
+      }
+
+      // 创建 assistant placeholder(空内容,status=2 streaming)
+      // 流式期间节流 PATCH 这个 id,流结束 PATCH status=1 done。
+      // 兜底:如果 placeholder 创建失败,记 -1,后续 PATCH 跳过(不影响流给浏览器)。
+      //
+      // 注意:必须在 handoff 检测之后 —— ack 路径已经 return,不会走到这里。
+      try {
+        const placeholder = await erp.appendMessage(sessionId, {
+          role: 'assistant',
+          content: '',
+          parts: [],
+          status: 2,
+        });
+        assistantMsgId = placeholder.id;
+      } catch (e) {
+        console.warn('[chat] assistant placeholder create failed:', (e as Error).message);
+        assistantMsgId = -1;
+      }
+    } catch (e) {
+      console.error('[chat] session setup failed:', e);
+      // 持久化准备失败:不让流终止(本地内存还兜底),只 warn
+      sessionId = -1;
+    }
+
+    // ============= 同步阶段 1:FAQ RAG 检索(给 AI 起点) =============
+    const k = Math.max(1, Math.min(10, topK));
+    let topResults: Awaited<ReturnType<typeof search>> = [];
+    let retrievalError: string | null = null;
+    try {
+      topResults = await search(queryText, k);
+    } catch (err) {
+      console.error('[chat] FAQ retrieval failed:', err);
+      retrievalError = err instanceof Error ? err.message : String(err);
+    }
+
+    const contextBlock =
+      topResults.length > 0
+        ? topResults
+            .map(
+              (item, i) =>
+                `[${i + 1}] (来源:${item.chunk.source},第 ${item.chunk.index + 1} 块,相似度 ${item.score.toFixed(3)})\n${item.chunk.text}`,
+            )
+            .join('\n\n---\n\n')
+        : '（知识库里没找到相关内容,基于一般知识回答即可;若用户问的是 FAQ 范围但答不上,礼貌说明并建议转人工）';
+
+    // ============= 同步阶段 2:MCP Client 起,listTools 拿 4 工具 =============
+    // 必须同步阶段连(AI SDK 6.x 拿到的是闭包,不能延后 connect)
+    //
+    // W11 改动:先确保 ai-config 已 init(chat 路径用 active 配置的 baseUrl/apiKey/model,
+    //   而不是 process.env 中的 DASHSCOPE_API_KEY 这种 fallback),
+    //   并把 active cfg 注入 MCP 子进程 env,让它内部 src/lib/rag.ts 调 embedding 时
+    //   也能用真 apiKey。
+    //
+    // 注意:不要用 `if (!peekCachedAiConfig()) await initAiFromErpAdmin()`
+    //   这种条件调用 —— initAiFromErpAdmin 内部有 _initialized 锁,
+    //   万一先前某次初始化失败(fallback-missing-key),后续 peek 即使为空也不会重试,
+    //   会一直 Unauthorized。强制每次都跑 init(force=true + 1h cache),
+    //   确保 chat 路径始终用真凭证。
+    await initAiFromErpAdmin();
+    const activeCfg = peekCachedAiConfig();
+    if (!activeCfg || !activeCfg.apiKey) {
+      // 真·降级也没救的场景:erp-admin 不可达且 env 没 key → 直接 503,
+      // 比让 LLM 401 Unauthorized 更直观(排查时一眼能看出是凭证缺失)
+      console.error('[chat] active ai-config 缺失(erp-admin 不可达且无 env key)');
+      return new Response(
+        JSON.stringify({
+          error: 'AI_CONFIG_UNAVAILABLE',
+          message: 'active ai-config 不可用:erp-admin 不可达且 env.DASHSCOPE_API_KEY 未配置',
+        }),
+        { status: 503, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    console.log(
+      `[chat] active ai-config: modelId=${activeCfg.modelId} provider=${activeCfg.provider}`,
+    );
+    const mcp = await createMcpStdioClient({ abortSignal: req.signal, cfg: activeCfg });
+    const mcpTools = (await mcp.listTools()) as unknown as ToolSet;
+    const toolList = Object.keys(mcpTools);
+    console.log(`[chat] MCP tools: ${toolList.join(', ')}`);
+
+    // ============= System Prompt(客服专用,覆盖 Day 4 通用 RAG) =============
+    const system = `你是「小服」,一名专业的 AI 智能客服助手,服务于一家电商 SaaS 公司。
+你做事靠谱、语气亲切、不啰嗦。
+
+## 你能调用的工具
+1. **get_active_orders**(userId?) — 拉当前用户所有进行中的订单(L3 实时上下文,不需要订单号)
+2. **get_user_order**(orderId) — 查指定订单详情(状态、金额、物流单号、出货时间)
+3. **search_faq**(query, topK?) — 从 FAQ 知识库二次检索(资料没覆盖时再用)
+4. **create_ticket**(userIssue, priority?, relatedOrderId?) — 创建工单留底(给运营跟进)
+5. **escalate_to_human**(reason, urgency?) — 转人工客服(用户明确要人或实在解决不了时)
+
+## 工具使用决策
+- 用户问「我最近一单 / 我有哪些订单 / 我的订单状态」(没给订单号)→ **优先调 get_active_orders** 拉 L3 上下文
+- 用户给了具体订单号(订单 #xxx)→ **必须先调 get_user_order** 查该订单详情
+- 用户问通用问题(怎么退款/怎么开发票/怎么投诉)→ 优先用【参考资料】;**资料没覆盖才调 search_faq** 二次检索
+- 用户明确要「转人工」/「找真人」/ 反复说「你解决不了」→ 调 escalate_to_human
+- 用户问题复杂(订单异常 + 投诉态度 + 申请赔偿)→ 调 create_ticket 留底
+- 工具返回 { error, message } → 友好告知用户(如「抱歉没找到订单 #999」),不要把 error 结构当数据用
+
+## 引用规则
+- 引用【参考资料】时用 [1] [2] [3] 标(沿用知识库引用风格)
+- 引用工具结果时用「根据订单信息...」「您的订单...」自然引用,**不用 [n]**
+- 没引用就不要标,标了反而显得不诚实
+
+## 边界
+- 资料和工具都查不到 → 明确说「目前资料库没收录这个问题,我会记录下来让运营补充」,**绝不瞎编**
+- 用户问敏感信息(密码 / 身份证 / 银行卡)→ 拒绝并建议走安全渠道
+- 用户投诉 / 情绪激动 → 先共情再给方案,避免冷冰冰官腔
+- 问医疗 / 法律等专业话题 → 礼貌说明超出 AI 客服范围,建议转人工
+
+## 风格
+- 短句,不要长段落;关键信息(订单号 / 物流单号 / 时间)单独成行
+- 不要复述资料原文,用自己的话总结
+- 回答末尾可列「参考来源」清单(仅当用了 [n] 引用时)
+
+【参考资料】
+${contextBlock}`;
+
+    const retrievalMeta = {
+      query: queryText,
+      topK: k,
+      results: topResults.map((r, i) => ({
+        ref: `[${i + 1}]`,
+        source: r.chunk.source,
+        index: r.chunk.index,
+        score: Number(r.score.toFixed(4)),
+        preview: r.chunk.text.slice(0, 120) + (r.chunk.text.length > 120 ? '...' : ''),
+        text: r.chunk.text,
+      })),
+      error: retrievalError,
+    };
+
+    const toolsMeta = {
+      list: toolList,
+      count: toolList.length,
+    };
+
+    // ============= 流式期间累积 + 节流 PATCH(服务端持久化核心) =============
+    // 累积所有 text-delta,每 500ms PATCH 一次(status=2 streaming)。
+    // 流结束 / abort → 取消 timer,最终 PATCH(status=1 normal 或 status=3 interrupted)。
+    // 注意:onChunk callback 是 blocking(SDK 等 promise resolve 才继续),所以 PATCH
+    //   调 fire-and-forget,不 await — 避免拖慢流。
+    let accumulatedText = '';
+    let accumulatedReasoning = ''; // 独立于 accumulatedText,reasoning 走自己字段
+    const accumulatedParts: Array<Record<string, unknown>> = [];
+    let accumulatedTextPart: { type: 'text'; text: string } | null = null;
+    const accumulatedMetadata: {
+      toolCalls?: Array<Record<string, unknown>>;
+      toolCallCount?: number;
+      lastStep?: number;
+      abortedAt?: string;
+      errorAt?: string;
+      errorMessage?: string;
+    } = {};
+    let lastChunkType = '';
+    let chunkCount = 0;
+    let patchTimer: NodeJS.Timeout | null = null;
+    let lastPatchInFlight: Promise<void> = Promise.resolve();
+
+    const flushPatch = (status: number) => {
+      if (sessionId <= 0 || assistantMsgId <= 0) return;
+      const payload = {
+        content: accumulatedText,
+        parts: accumulatedParts,
+        status,
+        metadata: {
+          ...accumulatedMetadata,
+          lastChunkType,
+          lastStep: accumulatedMetadata.lastStep,
+          chunkCount,
+          reasoningLength: accumulatedReasoning.length,
+        },
+      };
+      lastPatchInFlight = lastPatchInFlight.then(async () => {
+        try {
+          await erp.updateMessage(sessionId, assistantMsgId, payload);
+        } catch (e) {
+          console.warn('[chat] PATCH failed:', (e as Error).message);
+        }
+      });
+    };
+
+    const schedulePatch = () => {
+      if (patchTimer) return;
+      patchTimer = setTimeout(() => {
+        patchTimer = null;
+        flushPatch(2);
+      }, 500);
+    };
+
+    // ============= Agent 核心:streamText + MCP tools + stepCountIs =============
+    // Wrap escalate_to_human:LLM 只看到 reason/urgency(都是它能填的),
+    //   sessionKey 由前端在 execute 时自动注入(运行时变量,LLM 看不到)。
+    //   解决 e2af278 留下的 -32602 input validation 'sessionKey received undefined'。
+    // W11 C-FULL:sessionKey 由服务端注入,LLM 看不到 userId
+    const getActiveOrdersExecute = mcpTools.get_active_orders.execute as NonNullable<
+      typeof mcpTools.get_active_orders.execute
+    >;
+    // Wrap escalate_to_human:LLM 只看到 reason/urgency(都是它能填的),
+    //   sessionKey 由前端在 execute 时自动注入(运行时变量,LLM 看不到)。
+    //   解决 e2af278 留下的 -32602 input validation 'sessionKey received undefined'。
+    const escalateExecute = mcpTools.escalate_to_human.execute as NonNullable<
+      typeof mcpTools.escalate_to_human.execute
+    >;
+    const wrappedTools = {
+      ...mcpTools,
+      get_active_orders: {
+        ...mcpTools.get_active_orders,
+        execute: async (args: Record<string, unknown>, options: ToolExecutionOptions) => {
+          // 防御性:即使 LLM 试图传 userId,这里剥掉 + warn
+          const { userId: _ignoredUserId, ...safeArgs } = args as { userId?: unknown };
+          if (_ignoredUserId !== undefined) {
+            console.warn(
+              `[chat] get_active_orders: LLM 尝试传入 userId=${String(_ignoredUserId)},已丢弃`,
+            );
+          }
+          return getActiveOrdersExecute({ ...safeArgs, sessionKey }, options);
+        },
+      },
+      escalate_to_human: {
+        ...mcpTools.escalate_to_human,
+        execute: async (args: Record<string, unknown>, options: ToolExecutionOptions) => {
+          return escalateExecute({ ...args, sessionKey }, options);
+        },
+      },
+    };
+
+    // W11 sanitize:任何上游(前端 history restore / regen / 未来新 transport)发来的
+    // tool-like part 如果有 output 但缺 state/providerExecuted,后端兜底补全,
+    // 否则 AI SDK 6.x convertToModelMessages 看到「孤儿 tool-call」→ AI_MissingToolResultsError
+    // → AI_NoOutputGeneratedError。主修在 storedToUIMessage(message-converter.ts),这里是 belt。
+    const sanitizedMessages = messages.map((m) => {
+      if (m.role !== 'assistant') return m;
+      return {
+        ...m,
+        parts: m.parts.map((p) => {
+          const t = (p as { type?: string }).type;
+          const isTool = typeof t === 'string' && (t.startsWith('tool-') || t === 'dynamic-tool');
+          if (!isTool) return p;
+          const partAny = p as { state?: string; output?: unknown };
+          if (partAny.state !== undefined) return p;
+          if (partAny.output == null) return p; // 没 output = 真·未完成,不冒充
+          return { ...p, state: 'output-available', providerExecuted: true };
+        }),
+      };
+    });
+
+    const result = streamText({
+      model: qwenChat,
+      messages: await convertToModelMessages(sanitizedMessages),
+      system,
+      tools: wrappedTools, // MCP 4 工具,escalate_to_human 已 wrap(自动注入 sessionKey)
+      stopWhen: stepCountIs(5), // 最多 5 步
+      // W11:不绑 req.signal — 关 tab / 断网 时 client disconnect 不该让 server 放弃
+      // 已经跑出的 LLM 答案。让 streamText 自然跑完,onFinish 触发 PATCH status=1,
+      // 下次进 session 直接看到完整内容,而不是「继续生成」按钮。
+      // Trade-off:UI 「停止」按钮只能停前端 streaming;server 仍跑完(LLM token 省不下)。
+      // 真正 abort 需要单独端点 + redis 标记,session scope 太重,本阶段不做。
+      onChunk: ({ chunk }) => {
+        const streamChunk = chunk as unknown as {
+          type: string;
+          toolName?: string;
+          text?: string;
+          [key: string]: unknown;
+        };
+        lastChunkType = streamChunk.type;
+        chunkCount += 1;
+
+        // text-delta:累积 text(text-start/text-end 不累积)
+        if (streamChunk.type === 'text-delta' && typeof streamChunk.text === 'string') {
+          accumulatedText += streamChunk.text;
+          if (accumulatedTextPart) {
+            accumulatedTextPart.text = accumulatedText;
+          } else {
+            accumulatedTextPart = { type: 'text', text: accumulatedText };
+            accumulatedParts.push(accumulatedTextPart);
+          }
+          schedulePatch();
+        } else if (streamChunk.type === 'tool-input-end' || streamChunk.type === 'tool-result') {
+          const toolPart = { ...streamChunk, type: `tool-${streamChunk.toolName}` };
+          accumulatedParts.push(toolPart);
+          accumulatedMetadata.toolCalls ??= [];
+          accumulatedMetadata.toolCalls.push(toolPart);
+          schedulePatch();
+        } else if (streamChunk.type === 'reasoning-delta' || streamChunk.type === 'reasoning-end') {
+          const t = streamChunk.text || '';
+          accumulatedReasoning += t;
+          // 找/建单个 reasoning part,避免数组膨胀
+          const existing = accumulatedParts.find((p) => p.type === 'reasoning');
+          if (existing) {
+            existing.text = (existing.text as string | undefined) ?? '';
+            (existing.text as string) += t;
+          } else {
+            accumulatedParts.push({ type: 'reasoning', text: t });
+          }
+          schedulePatch();
+        }
+      },
+      onStepFinish: ({ stepNumber, toolCalls, toolResults, usage }) => {
+        accumulatedMetadata.lastStep = stepNumber;
+        accumulatedMetadata.toolCallCount =
+          (accumulatedMetadata.toolCallCount || 0) + toolCalls.length;
+        if (toolCalls && toolCalls.length > 0) {
+          console.log(
+            `[agent] step ${stepNumber ?? '?'}: ${toolCalls.length} tool call(s):`,
+            toolCalls.map((c) => c.toolName),
+          );
+        }
+        if (toolResults && toolResults.length > 0) {
+          for (const r of toolResults) {
+            const out = (r as unknown as { output?: unknown }).output;
+            const preview =
+              typeof out === 'string' ? out.slice(0, 100) : JSON.stringify(out).slice(0, 100);
+            console.log(
+              `[agent] tool ${(r as unknown as { toolName?: string }).toolName} → ${preview}...`,
+            );
+          }
+        }
+        if (usage) {
+          console.log(
+            `[agent] step usage: in=${usage.inputTokens} out=${usage.outputTokens} total=${usage.totalTokens}`,
+          );
+        }
+      },
+      onFinish: async () => {
+        // 流正常结束:取消节流 timer,最终 PATCH status=1 normal
+        if (patchTimer) {
+          clearTimeout(patchTimer);
+          patchTimer = null;
+        }
+        flushPatch(1);
+      },
+      onAbort: async () => {
+        // 用户中断:同上,但 status=3 interrupted
+        if (patchTimer) {
+          clearTimeout(patchTimer);
+          patchTimer = null;
+        }
+        accumulatedMetadata.abortedAt = new Date().toISOString();
+        flushPatch(3);
+        await lastPatchInFlight;
+      },
+    });
+
+    // ============= 包装 UI 流(沿用 W3-4 的 message-metadata 机制) =============
+    const stream = createUIMessageStream({
+      originalMessages: messages,
+      execute: async ({ writer }) => {
+        // W11:writer 操作包 try/catch — client disconnect 后 HTTP response body
+        // 已 close,writer.write / writer.merge 内部 enqueue 会抛错。这些错只意味着
+        // 「没法推给浏览器」,**不应阻断 streamText 完成**(否则又退回 status=3)。
+        const safeWrite = (chunk: Parameters<typeof writer.write>[0], label: string) => {
+          try {
+            writer.write(chunk);
+          } catch (e) {
+            console.warn(
+              `[chat] writer.write ${label} failed (client disconnected):`,
+              (e as Error).message,
+            );
+          }
+        };
+        try {
+          // 1) 先发 tools metadata(让前端尽早展示「4 个客服工具已就绪」)
+          safeWrite(
+            { type: 'message-metadata', messageMetadata: { tools: toolsMeta } },
+            'toolsMeta',
+          );
+
+          // 2) 合并 LLM 的 UI 流(text-delta / tool-part / finish 等)。
+          //    TransformStream 做两件事:
+          //    a) drop reasoning-* chunk — 渲染走 metadata.reasoning(后端 PATCH
+          //       落库,刷新后看折叠区),实时流式不展示给前端。
+          //    b) 剥掉所有 chunk 的 providerMetadata 字段 — dashscope(走 OpenAI
+          //       兼容模式)会在 text-delta / tool-* / start 等几乎所有 chunk 上挂
+          //       providerMetadata.openai.itemId。该字段不在 AI SDK 6.x 期望的
+          //       chunk schema 中,client useChat 收到后 Object.transform 抛错
+          //       (index.mjs:5743:15)→ SerialJobExecutor 内部没人 catch →
+          //       unhandled rejection → Next.js dev 错误覆盖层("未知错误")。
+          //       上次只过滤 reasoning 是漏的(text-delta 等也会带),retry 时
+          //       必现。strip providerMetadata 不影响渲染(客户端不用该字段)。
+          const uiStream = result.toUIMessageStream().pipeThrough(
+            new TransformStream({
+              transform(chunk, controller) {
+                if (chunk.type?.startsWith('reasoning')) return;
+                if ('providerMetadata' in chunk) {
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 仅借用 destructure 删字段,不需要变量
+                  const { providerMetadata: _stripped, ...clean } = chunk;
+                  controller.enqueue(clean as typeof chunk);
+                  return;
+                }
+                controller.enqueue(chunk);
+              },
+            }),
+          );
+          // writer.merge 是 fire-and-forget(void 返回);source stream(也就是 streamText)
+          // 继续跑。client 断开后 merge 内部 enqueue 抛错会被 SDK 自己吞(或写进内部队列),
+          // 不应阻断 streamText — 已包在 route handler 的 try/finally 里。
+          writer.merge(uiStream);
+
+          // 3) 等 streamText 自然完成 — 不管 client 是否还在(disconnect 不再 abort)
+          try {
+            await result.text;
+          } catch (err) {
+            // 真·业务错误(LLM 401 / MCP 错 / 模型崩),走 onError PATCH status=4。
+            // 注:streamText 已不绑 req.signal,所以这里 req.signal.aborted 不再是
+            // 触发条件(为兼容历史调用,仍保留检查 + warn)。
+            if (req.signal.aborted) {
+              console.warn(
+                '[chat] req.signal aborted but streamText errored independently (ignoring)',
+              );
+            }
+            throw err;
+          }
+
+          // 4) 正常完成:发 retrieval metadata
+          safeWrite(
+            { type: 'message-metadata', messageMetadata: { retrieval: retrievalMeta } },
+            'retrieval',
+          );
+
+          // 等所有 PATCH 落盘(尤其是 onFinish 的 status=1)
+          await lastPatchInFlight;
+        } finally {
+          // MCP client 必须关!否则子进程泄漏,9529 端口会越来越卡
+          await mcp.close().catch((err) => console.error('[chat] mcp close failed:', err));
+        }
+      },
+      onError: (err) => {
+        console.error('[chat] stream error:', err);
+        // 流式失败:写 status=4 error 区分用户主动 abort(status=3)
+        accumulatedMetadata.errorAt = new Date().toISOString();
+        accumulatedMetadata.errorMessage = err instanceof Error ? err.message : String(err);
+        if (patchTimer) {
+          clearTimeout(patchTimer);
+          patchTimer = null;
+        }
+        flushPatch(4);
+        lastPatchInFlight.then().catch(() => null);
+        return serializeError(err);
+      },
+    });
+
+    return createUIMessageStreamResponse({ stream });
+  } catch (err) {
+    console.error('[chat] request error:', err);
+    return new Response(JSON.stringify({ error: serializeError(err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+function serializeError(err: unknown): string {
+  if (err == null) return 'unknown error';
+  if (err instanceof Error) {
+    const details = err as unknown as {
+      status?: string | number;
+      code?: string | number;
+    };
+    const parts = [
+      err.name,
+      err.message,
+      details.status ? `status=${details.status}` : null,
+      details.code ? `code=${details.code}` : null,
+    ].filter(Boolean);
+    return parts.join(' | ');
+  }
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}

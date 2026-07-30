@@ -1,0 +1,525 @@
+// ============================================
+// 基础配置
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// 权限三件套(user / role / menu / permission)
+// ============================================
+
+model User {
+  id              Int       @id @default(autoincrement())
+  username        String    @unique @db.VarChar(50)
+  passwordHash    String    @map("password_hash") @db.VarChar(200)
+  nickname        String?   @db.VarChar(50)
+  email           String?   @unique @db.VarChar(100)
+  phone           String?   @db.VarChar(20)
+  avatar          String?   @db.VarChar(500)
+  departmentId    Int?      @map("department_id")
+  status          Int       @default(1) // 1 启用 / 0 禁用
+  lastLoginAt     DateTime? @map("last_login_at")
+  lastLoginIp     String?   @map("last_login_ip") @db.VarChar(50)
+  passwordExpiredAt DateTime? @map("password_expired_at")
+  failedLoginCount Int      @default(0) @map("failed_login_count")
+  lockedUntil     DateTime? @map("locked_until")
+  remark          String?   @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  roles           UserRole[]
+  tokens          UserToken[]
+  sessions        CsSession[]
+  ticketsAssigned CsTicket[]   @relation("TicketAssignee")
+  ticketsCreated  CsTicket[]   @relation("TicketCreator")
+  orders          Order[]
+  auditLogs       AuditLog[]
+  faqUploaded     FaqDocument[] @relation("FaqUploader")
+  faqReviewed     FaqVersion[]  @relation("FaqReviewer")
+  messages        CsMessage[]
+
+  @@index([username])
+  @@index([departmentId])
+  @@index([status])
+  @@map("user")
+}
+
+// Refresh token 持久化(Day 2 认证模块)
+// - jti 唯一,登录时生成,登出/重置密码时撤销(revokedAt=NOW())
+// - /refresh 校验 jti 存在 + 未撤销 + 未过期
+// - userId 反向关联 user
+model UserToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  jti       String    @unique @db.VarChar(64)
+  type      String    @default("refresh") @db.VarChar(20)
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  ip        String?   @db.VarChar(50)
+  userAgent String?   @map("user_agent") @db.VarChar(500)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("user_token")
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique @db.VarChar(50) // super_admin / agent_lead / agent / editor
+  name        String   @db.VarChar(50)
+  description String?  @db.VarChar(200)
+  dataScope   Int      @default(1) @map("data_scope") // 1 全部 / 2 本部门 / 3 本人 / 4 自定义
+  customDeptIds String? @map("custom_dept_ids") @db.Text
+  sort        Int      @default(0)
+  status      Int      @default(1)
+  builtin     Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  menus       RoleMenu[]
+  users       UserRole[]
+
+  @@index([code])
+  @@map("role")
+}
+
+model UserRole {
+  userId    Int      @map("user_id")
+  roleId    Int      @map("role_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_role")
+}
+
+model Menu {
+  id        Int      @id @default(autoincrement())
+  parentId  Int?     @map("parent_id")
+  name      String   @db.VarChar(50)
+  path      String?  @db.VarChar(200)
+  component String?  @db.VarChar(200)
+  icon      String?  @db.VarChar(50)
+  type      Int // 1 目录 / 2 菜单 / 3 按钮
+  permCode  String?  @map("perm_code") @db.VarChar(100)
+  sort      Int      @default(0)
+  visible   Boolean  @default(true)
+  status    Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  parent   Menu?     @relation("MenuTree", fields: [parentId], references: [id])
+  children Menu[]    @relation("MenuTree")
+  roles    RoleMenu[]
+
+  @@index([parentId])
+  @@index([type])
+  @@index([permCode])
+  @@map("menu")
+}
+
+model RoleMenu {
+  roleId    Int      @map("role_id")
+  menuId    Int      @map("menu_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  menu Menu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, menuId])
+  @@index([menuId])
+  @@map("role_menu")
+}
+
+// ============================================
+// 客服会话 / 工单
+// ============================================
+
+model CsSession {
+  id           Int       @id @default(autoincrement())
+  sessionKey   String    @unique @map("session_key") @db.VarChar(100)
+  userId       Int?      @map("user_id")
+  customerId   Int?      @map("customer_id") // W11:C 端 CsCustomer.id(和 userId 互斥)
+  visitorId    String    @map("visitor_id") @db.VarChar(100)
+  visitorName  String?   @map("visitor_name") @db.VarChar(50)
+  channel      Int       @default(1) // 1 Web / 2 微信 / 3 App
+  status       Int       @default(1) // 1 进行中 / 2 已结束
+  aiModelCode  String?   @map("ai_model_code") @db.VarChar(50)
+  messageCount Int       @default(0) @map("message_count")
+  rating       Int?
+  ratingText   String?   @map("rating_text") @db.Text
+  escalatedAt  DateTime? @map("escalated_at")
+  endedAt      DateTime? @map("ended_at")
+  startedAt    DateTime  @default(now()) @map("started_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  user     User?       @relation(fields: [userId], references: [id])
+  messages CsMessage[]
+  tickets  CsTicket[]
+
+  @@index([userId])
+  @@index([customerId])
+  @@index([visitorId])
+  @@index([status])
+  @@index([startedAt])
+  @@index([deletedAt])
+  @@map("cs_session")
+}
+
+model CsMessage {
+  id        Int      @id @default(autoincrement())
+  sessionId Int      @map("session_id")
+  role      String   @db.VarChar(20) // user / assistant / system / tool
+  content   String   @db.Text
+  parts     Json?
+  metadata  Json?
+  status    Int      @default(1)
+  userId    Int?     @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session CsSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User?     @relation(fields: [userId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@map("cs_message")
+}
+
+model CsTicket {
+  id             Int       @id @default(autoincrement())
+  ticketNo       String    @unique @map("ticket_no") @db.VarChar(30)
+  sessionId      Int?      @map("session_id")
+  title          String    @db.VarChar(200)
+  content        String    @db.Text
+  priority       Int       @default(2) // 1 高 / 2 中 / 3 低
+  status         Int       @default(1) // 1 待领取 / 2 处理中 / 3 已解决 / 4 已关闭
+  category       String?   @db.VarChar(50)
+  creatorId      Int       @map("creator_id")
+  assigneeId     Int?      @map("assignee_id")
+  relatedOrderId Int?      @map("related_order_id")
+  slaDeadline    DateTime? @map("sla_deadline")
+  resolvedAt     DateTime? @map("resolved_at")
+  closedAt       DateTime? @map("closed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  session  CsSession?    @relation(fields: [sessionId], references: [id])
+  creator  User          @relation("TicketCreator", fields: [creatorId], references: [id])
+  assignee User?         @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  logs     CsTicketLog[]
+
+  @@index([ticketNo])
+  @@index([status])
+  @@index([assigneeId])
+  @@index([creatorId])
+  @@index([createdAt])
+  @@map("cs_ticket")
+}
+
+model CsTicketLog {
+  id         Int      @id @default(autoincrement())
+  ticketId   Int      @map("ticket_id")
+  action     String   @db.VarChar(50)
+  fromVal    String?  @map("from_val") @db.VarChar(200)
+  toVal      String?  @map("to_val") @db.VarChar(200)
+  comment    String?  @db.Text
+  operatorId Int      @map("operator_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  ticket CsTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("cs_ticket_log")
+}
+
+// ============================================
+// 订单
+// ============================================
+
+model Order {
+  id            Int       @id @default(autoincrement())
+  orderNo       String    @unique @map("order_no") @db.VarChar(30)
+  userId        Int?      @map("user_id")
+  customerId    Int?      @map("customer_id") // W11:C 端 CsCustomer.id(和 userId 互斥,seed 阶段用于区分 demo)
+  customerName  String    @map("customer_name") @db.VarChar(50)
+  customerPhone String    @map("customer_phone") @db.VarChar(20)
+  customerEmail String?   @map("customer_email") @db.VarChar(100)
+  totalAmount   Decimal   @map("total_amount") @db.Decimal(10, 2)
+  payAmount     Decimal   @map("pay_amount") @db.Decimal(10, 2)
+  payMethod     String?   @map("pay_method") @db.VarChar(20)
+  payStatus     Int       @default(1) @map("pay_status")
+  orderStatus   Int       @default(1) @map("order_status")
+  shipNo        String?   @map("ship_no") @db.VarChar(50)
+  shipCompany   String?   @map("ship_company") @db.VarChar(50)
+  address       String?   @db.Text
+  remark        String?   @db.Text
+  paidAt        DateTime? @map("paid_at")
+  shippedAt     DateTime? @map("shipped_at")
+  receivedAt    DateTime? @map("received_at")
+  completedAt   DateTime? @map("completed_at")
+  cancelledAt   DateTime? @map("cancelled_at")
+  refundedAt    DateTime? @map("refunded_at")
+  refundAmount  Decimal?  @map("refund_amount") @db.Decimal(10, 2)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  user     User?        @relation(fields: [userId], references: [id])
+  customer CsCustomer?  @relation("OrderCustomer", fields: [customerId], references: [id])
+  items    OrderItem[]
+
+  @@index([orderNo])
+  @@index([customerPhone])
+  @@index([orderStatus, payStatus])
+  @@index([createdAt])
+  @@index([customerId])
+  @@map("order")
+}
+
+model OrderItem {
+  id          Int      @id @default(autoincrement())
+  orderId     Int      @map("order_id")
+  productId   String   @map("product_id") @db.VarChar(50)
+  productName String   @map("product_name") @db.VarChar(200)
+  productSku  String?  @map("product_sku") @db.VarChar(100)
+  price       Decimal  @db.Decimal(10, 2)
+  quantity    Int
+  subtotal    Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_item")
+}
+
+// ============================================
+// AI 配置
+// ============================================
+
+model AiModelConfig {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique @db.VarChar(50)
+  name         String   @db.VarChar(100)
+  provider     String   @db.VarChar(50) // dashscope / openai / minimax
+  modelId      String   @map("model_id") @db.VarChar(100)
+  apiKey       String?  @map("api_key") @db.VarChar(500)
+  baseUrl      String?  @map("base_url") @db.VarChar(200)
+  temperature  Float    @default(0.7)
+  topP         Float    @default(0.8) @map("top_p")
+  maxTokens    Int      @default(2000) @map("max_tokens")
+  systemPrompt String?  @map("system_prompt") @db.Text
+  description  String?  @db.Text
+  isDefault    Boolean  @default(false) @map("is_default")
+  status       Int      @default(1)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  @@index([code])
+  @@index([isDefault])
+  @@map("ai_model_config")
+}
+
+model AiPromptTemplate {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique @db.VarChar(50)
+  name      String   @db.VarChar(100)
+  content   String   @db.Text
+  variables String?  @db.Text
+  status    Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@map("ai_prompt_template")
+}
+
+// ============================================
+// FAQ 文档 + 版本
+// ============================================
+
+model FaqDocument {
+  id             Int      @id @default(autoincrement())
+  title          String   @db.VarChar(200)
+  category       String?  @db.VarChar(50)
+  tags           String?  @db.VarChar(200)
+  currentVersion Int      @default(1) @map("current_version")
+  status         Int      @default(1) // 1 待审核 / 2 已发布 / 3 已下线
+  uploaderId     Int      @map("uploader_id")
+  description    String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  versions FaqVersion[]
+  uploader User         @relation("FaqUploader", fields: [uploaderId], references: [id])
+
+  @@index([category])
+  @@index([status])
+  @@index([uploaderId])
+  @@map("faq_document")
+}
+
+model FaqVersion {
+  id         Int       @id @default(autoincrement())
+  documentId Int       @map("document_id")
+  version    Int
+  filePath   String    @map("file_path") @db.VarChar(500)
+  fileSize   Int       @map("file_size")
+  checksum   String    @db.VarChar(64)
+  chunkCount Int       @default(0) @map("chunk_count")
+  changelog  String?   @db.Text
+  status     Int       @default(1) // 1 待审核 / 2 已发布 / 3 已下线
+  reviewerId Int?      @map("reviewer_id")
+  reviewedAt DateTime? @map("reviewed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  document FaqDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  reviewer User?       @relation("FaqReviewer", fields: [reviewerId], references: [id])
+
+  @@unique([documentId, version])
+  @@index([checksum])
+  @@index([status])
+  @@map("faq_version")
+}
+
+// ============================================
+// 审计日志
+// ============================================
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?     @map("user_id")
+  username   String?  @db.VarChar(50)
+  module     String   @db.VarChar(50)
+  action     String   @db.VarChar(50)
+  resource   String?  @db.VarChar(100)
+  resourceId String?  @map("resource_id") @db.VarChar(50)
+  method     String?  @db.VarChar(10)
+  path       String?  @db.VarChar(200)
+  params     Json?
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ip         String?  @db.VarChar(50)
+  userAgent  String?  @map("user_agent") @db.VarChar(500)
+  status     Int      @default(1) // 1 成功 / 0 失败
+  errorMsg   String?  @map("error_msg") @db.Text
+  costMs     Int?     @map("cost_ms")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([module, action])
+  @@index([createdAt])
+  @@map("audit_log")
+}
+
+// ============================================
+// 数据字典
+// ============================================
+
+model DictType {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique @db.VarChar(50)
+  name      String   @db.VarChar(100)
+  remark    String?  @db.VarChar(200)
+  status    Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  items DictItem[]
+
+  @@index([deletedAt])
+  @@map("dict_type")
+}
+
+model DictItem {
+  id        Int      @id @default(autoincrement())
+  typeId    Int      @map("type_id")
+  label     String   @db.VarChar(100)
+  value     String   @db.VarChar(100)
+  sort      Int      @default(0)
+  status    Int      @default(1)
+  isDefault Boolean  @default(false) @map("is_default")
+  cssClass  String?  @map("css_class") @db.VarChar(50)
+  remark    String?  @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  type DictType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+
+  @@unique([typeId, value])
+  @@index([typeId, sort])
+  @@index([deletedAt])
+  @@map("dict_item")
+}
+
+// ============================================
+// 文件
+// ============================================
+
+model FileMeta {
+  id           Int       @id @default(autoincrement())
+  originalName String    @map("original_name") @db.VarChar(200)
+  storagePath  String    @map("storage_path") @db.VarChar(500)
+  storageType  String    @default("local") @map("storage_type") @db.VarChar(20)
+  url          String?   @db.VarChar(500)
+  mimeType     String    @map("mime_type") @db.VarChar(100)
+  fileSize     Int       @map("file_size")
+  checksum     String    @db.VarChar(64)
+  uploaderId   Int?      @map("uploader_id")
+  businessType String?   @map("business_type") @db.VarChar(50)
+  businessId   String?   @map("business_id") @db.VarChar(50)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  @@index([businessType, businessId])
+  @@index([checksum])
+  @@index([uploaderId])
+  @@map("file_meta")
+}
+
+// ============================================
+// 客服前台独立 C 端账号(CsCustomer)
+// - 与内部 User(坐席/管理员)解耦,前台 B 端订单/会话均可独立创建账号
+// - email 必填唯一 + phone 可选唯一
+// - status: 1 active / 0 disabled(独立字段,不与 User.status 联动)
+// ============================================
+
+model CsCustomer {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique @db.VarChar(100)
+  phone        String?   @unique @db.VarChar(20)
+  passwordHash String    @map("password_hash") @db.VarChar(100)
+  nickname     String?   @db.VarChar(50)
+  status       Int       @default(1) @db.TinyInt // 1=active, 0=disabled
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  orders Order[] @relation("OrderCustomer")
+
+  @@index([email, status])
+  @@map("cs_customer")
+}

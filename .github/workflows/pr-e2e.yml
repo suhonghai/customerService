@@ -1,0 +1,136 @@
+# ======================================================================================
+# Workflow: PR E2E (W11 ERP Admin)
+# ======================================================================================
+# Adapted from skillhub .github/workflows/pr-e2e.yml.
+#
+# Runs the backend e2e suite (NestJS supertest + Prisma + real MySQL/Chroma) against
+# a docker-compose stack built from the `test` overlay. We use the project's own
+# `make ENV=test up` rather than a hand-rolled GH service container so we exercise
+# the same wiring that developers see locally (one source of truth).
+#
+# Notes:
+#   - The MySQL/Chroma/redis services come from docker-compose.yml + .test.yml overlay.
+#   - The backend itself runs as a host process via `pnpm start:prod` after `make ENV=test up`,
+#     so jest can target `http://localhost:3002` (BACKEND_PORT in .env.test).
+#   - Only backend e2e is wired here. Frontend Playwright E2E is tracked as a separate
+#     follow-up (not in Phase 0).
+# ======================================================================================
+
+name: PR E2E
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    paths:
+      - 'erp-admin-backend/**'
+      - 'erp-admin-frontend/**'
+      - 'Makefile'
+      - 'docker-compose.yml'
+      - 'docker-compose.test.yml'
+      - '.github/workflows/pr-e2e.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: pr-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-e2e:
+    name: Backend E2E (Real Services)
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: erp-admin-backend/pnpm-lock.yaml
+
+      - name: Prepare .env.test
+        working-directory: .
+        run: |
+          if [ ! -f .env.test ]; then
+            echo "[ERROR] .env.test missing — repo should ship it (gitignored secrets live in .env.test.example)"
+            exit 1
+          fi
+
+      - name: Install backend dependencies
+        working-directory: erp-admin-backend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build backend
+        working-directory: erp-admin-backend
+        run: pnpm build
+
+      - name: Bring up test stack (mysql + chroma + redis)
+        run: make ENV=test up
+
+      - name: Run Prisma migrate + seed (test DB)
+        run: |
+          set -a && . ./.env.test && set +a
+          cd erp-admin-backend
+          pnpm exec prisma migrate deploy
+          pnpm exec prisma db seed
+
+      - name: Start backend in background
+        run: |
+          set -a && . ./.env.test && set +a
+          mkdir -p logs
+          cd erp-admin-backend
+          nohup pnpm start:prod > ../logs/dev-server.log 2>&1 &
+          echo "PID=$!"
+          # wait for /api/health/live to come up (max 60s)
+          for i in $(seq 1 30); do
+            if curl -sS --max-time 2 http://localhost:3002/api/health/live >/dev/null 2>&1; then
+              echo "[ok] backend is live after ${i} probes"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "[ERROR] backend did not become live within 60s"
+          tail -100 ../logs/dev-server.log
+          exit 1
+
+      - name: Run backend e2e tests
+        working-directory: erp-admin-backend
+        run: pnpm test:e2e
+
+      - name: Upload e2e test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        with:
+          name: backend-e2e-reports
+          path: erp-admin-backend/coverage/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload backend dev logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        with:
+          name: backend-e2e-logs
+          path: logs/dev-server.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Tear down test stack
+        if: ${{ always() }}
+        run: make ENV=test down

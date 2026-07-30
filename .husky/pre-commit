@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+# Multi-project pre-commit hook.
+# Detects which project has staged files and runs its lint-staged.
+set -e
+
+ROOT=$(git rev-parse --show-toplevel)
+staged=$(git diff --cached --name-only)
+
+if echo "$staged" | grep -q '^W11-erp-admin/'; then
+  (cd "$ROOT/W11-erp-admin" && pnpm lint-staged)
+fi
+
+if echo "$staged" | grep -q '^W9-10-customer-service/ai-cs-demo/'; then
+  (cd "$ROOT/W9-10-customer-service/ai-cs-demo" && pnpm lint-staged)
+fi

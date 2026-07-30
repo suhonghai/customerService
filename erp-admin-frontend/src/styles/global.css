@@ -1,0 +1,727 @@
+/**
+ * W11 ERP Global Styles — Editorial Magazine / Print-Inspired
+ *
+ * Stripe Press / Linear Changelog 风格:
+ * - 暖白米黄底 + Fraunces 衬线 display
+ * - 单一暖琥珀强调 + 暖靛蓝主色
+ * - 大留白 + outline 按钮 + 章节编号签名
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..700,0..100&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ── Reset ─────────────────────────────────── */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  transition:
+    background-color var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+/* ── Display font (Fraunces 衬线,标题专用) ─── */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.ant-typography h1,
+.ant-typography h2,
+.ant-typography h3,
+.ant-typography h4,
+.ant-typography h5,
+.ant-typography h6 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+  font-variation-settings:
+    'opsz' 144,
+    'SOFT' 0;
+}
+
+/* ── Mono (数字 / ID / 价格 / 表格数据) ────── */
+.mono,
+.price,
+.id,
+.ant-statistic-content-value,
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings:
+    'tnum' 1,
+    'zero' 1;
+}
+
+/* ── 章节编号 (Editorial 签名) ─────────────── */
+.section-tag {
+  font-family: var(--font-label);
+  font-weight: 500;
+  font-style: italic;
+  font-size: 13px;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-tag .num {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 11px;
+  color: var(--color-accent);
+  letter-spacing: 0.04em;
+}
+
+.section-tag::after {
+  content: '';
+  display: inline-block;
+  width: 24px;
+  height: 1px;
+  background: var(--border-default);
+  margin-left: 4px;
+}
+
+/* ── Card (柔和,接近无边框) ───────────────── */
+.ant-card {
+  background: var(--bg-canvas) !important;
+  border: none !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-sm) !important;
+  transition:
+    box-shadow var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out),
+    background-color var(--duration-base) var(--ease-out) !important;
+}
+
+.ant-card.interactive {
+  cursor: pointer;
+}
+
+.ant-card.interactive:hover {
+  box-shadow: var(--shadow-md) !important;
+  transform: translateY(-1px);
+}
+
+/* ── Table (无边框,宽松) ──────────────────── */
+.ant-table-wrapper .ant-table {
+  background: transparent !important;
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th {
+  background: transparent !important;
+  color: var(--text-tertiary) !important;
+  font-family: var(--font-label);
+  font-weight: 500;
+  font-style: normal;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--border-default) !important;
+  padding: 16px 20px !important;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  padding: 18px 20px !important;
+  border-bottom: 1px solid var(--border-thin) !important;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr:last-child > td {
+  border-bottom: none !important;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+
+.ant-table-wrapper .ant-table-row-selected > td {
+  background: var(--bg-active) !important;
+}
+
+/* ── Fixed columns z-index(防止与 sticky header / cell 内容重叠) ── */
+.ant-table-cell-fix-left,
+.ant-table-cell-fix-right {
+  background: var(--bg-canvas) !important;
+}
+
+.ant-table-cell-fix-right {
+  box-shadow: -4px 0 8px rgba(26, 26, 26, 0.04) !important;
+}
+
+.ant-table-row-hover .ant-table-cell-fix-left,
+.ant-table-row-hover .ant-table-cell-fix-right {
+  background: var(--bg-hover) !important;
+}
+
+.ant-table-thead > tr > .ant-table-cell-fix-left,
+.ant-table-thead > tr > .ant-table-cell-fix-right {
+  background: var(--bg-canvas) !important;
+  z-index: 3 !important;
+}
+
+.ant-table-tbody > tr > .ant-table-cell-fix-left,
+.ant-table-tbody > tr > .ant-table-cell-fix-right {
+  z-index: 2 !important;
+}
+
+/* ── Status Tag (Fraunces + dot,克制) ──────── */
+.ant-tag {
+  border-radius: var(--radius-pill) !important;
+  padding: 1px 10px !important;
+  font-family: var(--font-label);
+  font-style: normal;
+  font-weight: 500 !important;
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid transparent !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px;
+  line-height: 18px !important;
+  height: 22px;
+}
+
+.ant-tag::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 2px;
+}
+
+.tag-pending {
+  background: var(--tag-warning-bg) !important;
+  color: var(--tag-warning-fg) !important;
+}
+.tag-processing {
+  background: var(--tag-primary-bg) !important;
+  color: var(--tag-primary-fg) !important;
+}
+.tag-success {
+  background: var(--tag-success-bg) !important;
+  color: var(--tag-success-fg) !important;
+}
+.tag-danger {
+  background: var(--tag-danger-bg) !important;
+  color: var(--tag-danger-fg) !important;
+}
+.tag-neutral,
+.tag-info {
+  background: var(--tag-info-bg) !important;
+  color: var(--tag-info-fg) !important;
+}
+
+/* ── Button (outline 印刷感,无渐变) ─────────── */
+.ant-btn {
+  border-radius: var(--radius-md) !important;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 13px;
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-primary);
+  box-shadow: none !important;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.ant-btn:hover {
+  background: var(--bg-inverse);
+  color: var(--text-inverse);
+  border-color: var(--bg-inverse);
+}
+
+.ant-btn-primary {
+  background: var(--bg-inverse);
+  color: var(--text-inverse);
+  border-color: var(--bg-inverse);
+}
+
+.ant-btn-primary:hover {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--bg-inverse);
+}
+
+.ant-btn-danger {
+  background: transparent;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.ant-btn-danger:hover {
+  background: var(--color-danger);
+  color: #ffffff;
+  border-color: var(--color-danger);
+}
+
+.ant-btn-link {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  padding: 0 4px;
+  height: auto;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--border-default);
+}
+
+.ant-btn-link:hover {
+  color: var(--color-primary);
+  background: transparent;
+  text-decoration-color: var(--color-primary);
+}
+
+.ant-btn-link.danger {
+  color: var(--color-danger);
+}
+
+.ant-btn-link.danger:hover {
+  color: var(--color-danger);
+  text-decoration-color: var(--color-danger);
+}
+
+/* ── Input (柔和下划线感,印刷感) ─────────── */
+.ant-input,
+.ant-input-password,
+.ant-input-affix-wrapper,
+.ant-select-selector,
+.ant-picker,
+.ant-input-number {
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--border-default) !important;
+  background: var(--bg-canvas) !important;
+  box-shadow: none !important;
+  transition: all var(--duration-fast) var(--ease-out) !important;
+}
+
+.ant-input:focus,
+.ant-input-affix-wrapper-focused,
+.ant-select-focused .ant-select-selector,
+.ant-picker-focused {
+  border-color: var(--color-primary) !important;
+  box-shadow: var(--shadow-focus) !important;
+}
+
+.ant-input::placeholder {
+  color: var(--text-placeholder);
+}
+
+/* ── Layout ─────────────────────────────────── */
+.ant-layout {
+  background: var(--bg-app) !important;
+}
+
+.ant-layout-content {
+  padding: var(--content-padding);
+  min-height: 0;
+  max-width: 1440px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ── Sider (纯白底,印刷杂志感) ─────────────── */
+.ant-layout-sider {
+  background: var(--bg-canvas) !important;
+  border-right: 1px solid var(--border-thin) !important;
+}
+
+:root[data-theme='dark'] .ant-layout-sider {
+  background: var(--bg-canvas) !important;
+  border-right: 1px solid var(--border-thin) !important;
+}
+
+.ant-layout-sider .ant-menu {
+  background: transparent !important;
+  border-right: none !important;
+}
+
+.ant-layout-sider .ant-menu-item,
+.ant-layout-sider .ant-menu-submenu-title {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 400;
+  color: var(--text-regular);
+  margin: 2px 16px !important;
+  border-radius: var(--radius-md) !important;
+  height: 36px;
+  line-height: 36px;
+}
+
+.ant-layout-sider .ant-menu-item:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+.ant-layout-sider .ant-menu-item-selected {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  border-left: 2px solid var(--color-primary) !important;
+  padding-left: 14px !important;
+}
+
+.ant-layout-sider .ant-menu-item-selected::after {
+  display: none;
+}
+
+/* ── Header (sticky + 克制印刷感) ───────────── */
+.ant-layout-header {
+  background: var(--bg-canvas) !important;
+  border-bottom: 1px solid var(--border-thin) !important;
+  height: var(--header-height) !important;
+  padding: 0 var(--space-8) !important;
+  line-height: var(--header-height) !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+}
+
+/* ── Breadcrumb (斜体 editorial) ────────────── */
+.ant-breadcrumb {
+  font-family: var(--font-label);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.ant-breadcrumb a {
+  color: var(--text-secondary);
+}
+
+.ant-breadcrumb a:hover {
+  color: var(--color-primary);
+}
+
+.ant-breadcrumb-separator {
+  color: var(--text-tertiary);
+  margin: 0 6px;
+  font-style: normal;
+}
+
+/* ── Modal ─────────────────────────────────── */
+.ant-modal-content {
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-lg) !important;
+  border: none !important;
+  background: var(--bg-canvas);
+}
+
+.ant-modal-header {
+  border-bottom: 1px solid var(--border-thin) !important;
+  padding: 20px 24px !important;
+  margin-bottom: 0 !important;
+}
+
+.ant-modal-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+/* ── Drawer ─────────────────────────────────── */
+.ant-drawer-content {
+  background: var(--bg-canvas);
+}
+
+/* ── Statistic (Fraunces 衬线数字) ────────── */
+.ant-statistic-title {
+  font-family: var(--font-label);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  letter-spacing: 0.02em;
+}
+
+.ant-statistic-content {
+  font-family: var(--font-mono);
+}
+
+.ant-statistic-content-value {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 144;
+  font-size: 36px;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.ant-statistic-content-prefix,
+.ant-statistic-content-suffix {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* ── Scrollbar ────────────────────────────── */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ── Brand mark (Fraunces logo) ─────────────── */
+.brand-mark {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 144;
+  font-weight: 500;
+  font-size: 19px;
+  letter-spacing: -0.025em;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.brand-mark .amp {
+  font-style: italic;
+  color: var(--color-accent);
+  font-weight: 400;
+}
+
+.brand-mark .sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-left: 2px;
+}
+
+/* ── Reveal animation (克制 fade-in) ─────────── */
+@keyframes ed-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reveal {
+  animation: ed-reveal 400ms var(--ease-out) both;
+}
+
+.reveal-1 {
+  animation-delay: 40ms;
+}
+.reveal-2 {
+  animation-delay: 90ms;
+}
+.reveal-3 {
+  animation-delay: 140ms;
+}
+.reveal-4 {
+  animation-delay: 200ms;
+}
+.reveal-5 {
+  animation-delay: 260ms;
+}
+.reveal-6 {
+  animation-delay: 320ms;
+}
+
+/* ── Selection ────────────────────────────── */
+::selection {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+:root[data-theme='dark'] ::selection {
+  background: var(--color-accent);
+  color: var(--bg-inverse);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ── Pagination ─────────────────────────────── */
+.ant-pagination .ant-pagination-item,
+.ant-pagination .ant-pagination-prev,
+.ant-pagination .ant-pagination-next {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  font-family: var(--font-mono);
+}
+
+.ant-pagination .ant-pagination-item-active {
+  background: var(--bg-inverse) !important;
+  border-color: var(--bg-inverse) !important;
+}
+
+.ant-pagination .ant-pagination-item-active a {
+  color: var(--text-inverse) !important;
+}
+
+/* ── Mobile ─────────────────────────────────── */
+@media (max-width: 767px) {
+  html {
+    font-size: 13px;
+  }
+  body {
+    font-size: 13px;
+  }
+
+  .ant-layout-header {
+    padding: 0 var(--space-3) !important;
+    height: 52px !important;
+  }
+
+  .ant-layout-content {
+    padding: var(--space-4) !important;
+  }
+
+  .ant-statistic-content-value {
+    font-size: 28px !important;
+  }
+
+  .ant-modal {
+    margin: 0 !important;
+    max-width: 100vw !important;
+    top: 0 !important;
+    padding: 0 !important;
+  }
+
+  .ant-modal-content {
+    border-radius: 0 !important;
+    min-height: 100vh;
+  }
+
+  .ant-table-wrapper .ant-table-thead > tr > th {
+    padding: 12px 14px !important;
+    font-size: 11px;
+  }
+
+  .ant-table-wrapper .ant-table-tbody > tr > td {
+    padding: 14px !important;
+    font-size: 13px;
+  }
+
+  .ant-table-wrapper .ant-table-content {
+    overflow-x: auto;
+  }
+
+  .section-tag {
+    font-size: 11px;
+  }
+}
+
+/* ── Auth (Login) Mobile ────────────────────── */
+@media (max-width: 767px) {
+  /* 移动端改成单列垂直堆叠,左栏 hero 收起 */
+  .auth-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto 1fr;
+    min-height: 100vh;
+  }
+
+  .auth-hero {
+    padding: 32px 24px !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border-thin);
+    gap: 24px;
+    min-height: auto !important;
+  }
+
+  .auth-hero h1 {
+    font-size: 36px !important;
+    line-height: 1.1 !important;
+  }
+
+  .auth-hero > div:first-child {
+    /* 隐藏 logo + 状态条 (保留底部 v0.1.0 status) */
+    display: none !important;
+  }
+
+  .auth-form {
+    padding: 32px 24px 48px !important;
+    align-items: center;
+  }
+
+  .auth-form > div {
+    max-width: 100% !important;
+    width: 100%;
+  }
+
+  /* 隐藏大留白描述文字 + 简化 */
+  .auth-hero p {
+    font-size: 14px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .auth-hero h1 {
+    font-size: 30px !important;
+  }
+}
+
+/* ── Tablet ─────────────────────────────────── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .ant-table-wrapper .ant-table-content {
+    overflow-x: auto;
+  }
+}
+
+/* ── Reduce motion ─────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

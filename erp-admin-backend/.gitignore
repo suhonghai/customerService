@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.uat
+.env.production
+# .env.example is checked in (template)
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Prisma
+prisma/migrations/dev.db*
+prisma/dev.db*
+
+# Storage
+chroma-data/
+uploads/
+data/
+
+# Coverage
+coverage/
+
+# Test
+.jest-cache/

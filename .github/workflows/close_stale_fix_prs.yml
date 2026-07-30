@@ -1,0 +1,163 @@
+# ======================================================================================
+# Workflow: Close Stale Fix PRs
+# ======================================================================================
+# Adapted from skillhub .github/workflows/close_stale_fix_prs.yml.
+#
+# Purpose:
+#   - Daily cron closes stale agent-authored CI fix PRs.
+#   - "Agent-authored fix PR" = any PR carrying the `auto-fix-ci` label (applied by
+#     any automation that opens fix PRs — humans or agents apply the label, the
+#     workflow stays agent-agnostic).
+#   - Stale = open longer than `stale_days` without merge.
+#
+# What it does:
+#   - Adds an explanatory comment, then closes
+#   - Does NOT delete the branch (preserves work; can be reopened)
+#   - Skips draft PRs
+#
+# Tunable inputs (workflow_dispatch):
+#   - stale_days: stale cutoff in days (default 5)
+#   - dry_run: list PRs that would close, without actually closing
+#
+# Why label-based rather than branch-regex:
+#   - Branch regexes encode one specific automation pipeline's naming and break
+#     when the pipeline changes (e.g. `oz-agent-fix/...`, `bot/fix-...`, etc.).
+#   - A label is a clean cross-pipeline contract: any tool that opens fix PRs
+#     applies `auto-fix-ci`, and this workflow handles them uniformly.
+# ======================================================================================
+
+name: Close Stale Fix PRs
+
+on:
+  schedule:
+    # Daily at 04:00 UTC = 12:00 China Standard Time
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      stale_days:
+        description: 'Number of days to consider an auto-fix-ci PR stale (default 5)'
+        required: false
+        default: '5'
+        type: string
+      dry_run:
+        description: 'Dry run (list PRs that would be closed, without actually closing)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  close-stale-fix-prs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close stale auto-fix-ci PRs
+        uses: actions/github-script@ed597411d8f924073f5b2529f9e25c400c1707ab # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const staleDays = parseInt(
+              context.payload.inputs?.stale_days || '5'
+            );
+            const dryRun = context.payload.inputs?.dry_run === 'true';
+            const staleCutoffMs = staleDays * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+
+            // Selector: PRs labeled `auto-fix-ci` (the team-level contract for
+            // "this PR was opened to fix a CI failure and is safe to garbage-collect").
+            const FIX_PR_LABEL = 'auto-fix-ci';
+
+            console.log(`Configuration:`);
+            console.log(`  staleDays: ${staleDays}`);
+            console.log(`  staleCutoffMs: ${staleCutoffMs}`);
+            console.log(`  dryRun: ${dryRun}`);
+            console.log(`  selector: PRs with label '${FIX_PR_LABEL}'`);
+            console.log('');
+
+            // Paginate through all open PRs (we'll filter by label client-side
+            // because github.rest.issues.listForRepo doesn't accept per_page on
+            // its label filter as cleanly as pulls.list).
+            const openPRs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            console.log(`Total open PRs: ${openPRs.length}`);
+
+            const stalePRs = openPRs.filter(pr => {
+              if (pr.draft) return false;
+              const hasLabel = pr.labels?.some(l => l.name === FIX_PR_LABEL);
+              if (!hasLabel) return false;
+
+              const openedAt = new Date(pr.created_at).getTime();
+              const isStale = (now - openedAt) > staleCutoffMs;
+              return isStale;
+            });
+
+            if (stalePRs.length === 0) {
+              console.log(`✓ No stale '${FIX_PR_LABEL}' PRs found.`);
+              return;
+            }
+
+            console.log(`Found ${stalePRs.length} stale fix PR(s):`);
+
+            for (const pr of stalePRs) {
+              const ageMs = now - new Date(pr.created_at).getTime();
+              const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+              console.log(`  - PR #${pr.number} branch=${pr.head.ref} age=${ageDays}d title="${pr.title}"`);
+
+              if (dryRun) {
+                continue;
+              }
+
+              const commentBody = [
+                `Closing this CI fix PR: it has been open for **${ageDays} day(s)** without being merged`,
+                `(stale cutoff: ${staleDays} days; selector: \`${FIX_PR_LABEL}\` label).`,
+                ``,
+                `Common reasons a fix PR goes stale:`,
+                `- the underlying CI failure was resolved through another PR`,
+                `- the proposed fix is now outdated relative to current main`,
+                `- a follow-up automation iteration produced a different fix`,
+                `- the PR has been waiting on human review for too long`,
+                ``,
+                `If this fix is still relevant, reopen the PR (\`gh pr reopen ${pr.number}\`)`,
+                `or re-run the automation that originally produced it.`,
+                ``,
+                `The remote branch \`${pr.head.ref}\` is **not deleted** — pushes will reopen the PR automatically.`,
+                ``,
+                `---`,
+                `_Rule: [.github/workflows/close_stale_fix_prs.yml](.github/workflows/close_stale_fix_prs.yml)_`,
+              ].join('\n');
+
+              try {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                  body: commentBody,
+                });
+
+                await github.rest.pulls.update({
+                  owner,
+                  repo,
+                  pull_number: pr.number,
+                  state: 'closed',
+                });
+
+                console.log(`    ✓ Closed PR #${pr.number}`);
+              } catch (err) {
+                console.error(`    ✗ Failed to close PR #${pr.number}: ${err.message}`);
+              }
+            }
+
+            if (dryRun) {
+              console.log(`\n[DRY RUN] Would have closed ${stalePRs.length} PR(s).`);
+            } else {
+              console.log(`\n✓ Closed ${stalePRs.length} stale fix PR(s).`);
+            }

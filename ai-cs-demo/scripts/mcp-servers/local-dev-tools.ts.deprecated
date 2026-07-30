@@ -1,0 +1,344 @@
+/**
+ * MCP Server: local-dev-tools
+ *
+ * 暴露 6 个工具(file/git) + 1 个 Resource(file://),用于 AI 助手读项目文件、操作本地开发环境。
+ * 跑法:`pnpm mcp:dev` 或 `tsx scripts/mcp-servers/local-dev-tools.ts`
+ *
+ * 安全:所有路径操作走 isPathSafe() 白名单检查,MCP_ALLOWED_ROOTS 之外的文件一律拒绝。
+ *
+ * 协议:JSON-RPC 2.0 over stdio(进 stdin / 出 stdout)。
+ * 详细时序见 docs/mcp-protocol-notes.md。
+ */
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { promises as fs } from 'node:fs'
+import { resolve, normalize, relative, isAbsolute } from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { z } from 'zod'
+
+const execFileAsync = promisify(execFile)
+
+// ============ 路径白名单 ============
+
+const ALLOWED_ROOTS = (process.env.MCP_ALLOWED_ROOTS ?? process.cwd())
+  .split(',')
+  .map(p => resolve(p.trim()))
+  .filter(Boolean)
+
+console.error(`[mcp-server] allowed roots: ${ALLOWED_ROOTS.join(', ')}`)
+
+function isPathSafe(input: string): { safe: boolean; abs?: string; reason?: string } {
+  if (!input) return { safe: false, reason: 'empty path' }
+  // 相对路径:按 ALLOWED_ROOTS[0] 解析(AI 不知道 cwd,只看到白名单根)
+  // 绝对路径:直接 normalize(白名单校验后会拦)
+  const abs = isAbsolute(input) ? normalize(input) : resolve(ALLOWED_ROOTS[0], input)
+  const inRoot = ALLOWED_ROOTS.some(root => {
+    const rel = relative(root, abs)
+    // rel 为空 = 路径就是 root(允许);以 .. 开头 = 在 root 之外(拒绝);绝对路径 = 不在任何 root 子树
+    return rel === '' || (rel && !rel.startsWith('..') && !isAbsolute(rel))
+  })
+  return inRoot
+    ? { safe: true, abs }
+    : { safe: false, reason: `Path "${input}" is outside allowed roots: ${ALLOWED_ROOTS.join(', ')}` }
+}
+
+// ============ Tool handler 序列化锁 ============
+// stdio transport 一口气读出 N 条消息会并发触发 tool handler,
+// 加 promise 链确保一个 handler 跑完才执行下一个(JSON-RPC 顺序保证)。
+let toolChain: Promise<unknown> = Promise.resolve()
+function serializedTool<T>(fn: () => Promise<T>): Promise<T> {
+  const next = toolChain.then(fn, fn)  // 链上一步无论成败都继续
+  toolChain = next.catch(() => {})      // 链尾吞错,不让后续 handler 受影响
+  return next
+}
+
+// ============ Server ============
+
+const server = new McpServer(
+  {
+    name: 'local-dev-tools',
+    version: '0.1.0',
+  },
+  {
+    capabilities: {
+      tools: {},
+      resources: {},
+    },
+  }
+)
+
+// ============ Tool 1: read_file ============
+
+server.tool(
+  'read_file',
+  '读一个文本文件的内容(限 MCP_ALLOWED_ROOTS 白名单内),返回文本或 base64。',
+  {
+    path: z.string().describe('相对 ALLOWED_ROOTS 的相对路径,或绝对路径'),
+    encoding: z.enum(['utf8', 'base64']).optional().default('utf8'),
+  },
+  async ({ path, encoding }) => serializedTool(async () => {
+    const check = isPathSafe(path)
+    if (!check.safe) {
+      return { isError: true, content: [{ type: 'text', text: `🚫 ${check.reason}` }] }
+    }
+    try {
+      const content = await fs.readFile(check.abs!, { encoding: encoding as BufferEncoding })
+      return { content: [{ type: 'text', text: content }] }
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `read_file failed: ${err.code ?? err.message}` }],
+      }
+    }
+  })
+)
+
+// ============ Tool 2: write_file ============
+
+server.tool(
+  'write_file',
+  '写一个文本文件(限白名单内),覆盖已存在文件,父目录会自动创建。',
+  {
+    path: z.string().describe('相对 ALLOWED_ROOTS 的相对路径,或绝对路径'),
+    content: z.string().describe('要写入的文本内容'),
+  },
+  async ({ path, content }) => serializedTool(async () => {
+    const check = isPathSafe(path)
+    if (!check.safe) {
+      return { isError: true, content: [{ type: 'text', text: `🚫 ${check.reason}` }] }
+    }
+    try {
+      await fs.mkdir(resolve(check.abs!, '..'), { recursive: true })
+      await fs.writeFile(check.abs!, content, 'utf8')
+      return { content: [{ type: 'text', text: `✅ written: ${path} (${content.length} bytes)` }] }
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `write_file failed: ${err.code ?? err.message}` }],
+      }
+    }
+  })
+)
+
+// ============ Tool 3: list_dir ============
+
+server.tool(
+  'list_dir',
+  '列一个目录的文件和子目录(递归 1 层,加 pattern 过滤文件名)。',
+  {
+    path: z.string().describe('相对 ALLOWED_ROOTS 的相对路径,或绝对路径'),
+    pattern: z.string().optional().describe('文件名包含此字符串才返回(可选)'),
+  },
+  async ({ path, pattern }) => serializedTool(async () => {
+    const check = isPathSafe(path)
+    if (!check.safe) {
+      return { isError: true, content: [{ type: 'text', text: `🚫 ${check.reason}` }] }
+    }
+    try {
+      const entries = await fs.readdir(check.abs!, { withFileTypes: true })
+      const filtered = pattern
+        ? entries.filter(e => e.name.includes(pattern))
+        : entries
+      const lines = filtered
+        .map(e => `${e.isDirectory() ? '[DIR] ' : '[FILE]'} ${e.name}`)
+        .sort()
+      return { content: [{ type: 'text', text: lines.join('\n') || '(empty)' }] }
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `list_dir failed: ${err.code ?? err.message}` }],
+      }
+    }
+  })
+)
+
+// ============ Tool 4: grep ============
+
+server.tool(
+  'grep',
+  '在目录下用 ripgrep(或系统 grep)搜文本模式,返回 file:line:text。',
+  {
+    pattern: z.string().describe('要搜索的正则/字符串'),
+    path: z.string().describe('搜索的根目录(限白名单内)'),
+    glob: z.string().optional().describe('文件名 glob,如 "*.ts"'),
+    maxResults: z.number().int().min(1).max(100).optional().default(20),
+  },
+  async ({ pattern, path, glob, maxResults }) => serializedTool(async () => {
+    const check = isPathSafe(path)
+    if (!check.safe) {
+      return { isError: true, content: [{ type: 'text', text: `🚫 ${check.reason}` }] }
+    }
+    try {
+      // macOS BSD grep 不支持 --include,改用 find + grep,跨平台一致
+      // find . -name "*.ts" -type f -exec grep -nH 'pattern' {} +
+      const findArgs = glob
+        ? [check.abs!, '-type', 'f', '-name', glob, '-exec', 'grep', '-nH', '-e', pattern, '{}', '+']
+        : [check.abs!, '-type', 'f', '-exec', 'grep', '-nH', '-e', pattern, '{}', '+']
+      const { stdout } = await execFileAsync('find', findArgs, { maxBuffer: 5 * 1024 * 1024 })
+      const lines = stdout.split('\n').filter(Boolean).slice(0, maxResults)
+      return {
+        content: [{
+          type: 'text',
+          text: lines.length ? lines.join('\n') : '(no matches)',
+        }],
+      }
+    } catch (err: any) {
+      // 注:err.code === 1 来自外层 `find`(其 -exec grep 失败时 find 也返 1),
+      // 不是 grep 本身(BSD grep 无效正则返 2)。"无匹配"和"grep 报错"都让 find 返 1,
+      // 只能靠 err.stderr 区分。已知 BSD/GNU stderr 形态:brackets not balanced / Unmatched /
+      // Invalid regular expression / repetition / character class / character range。
+      const stderr = String(err.stderr ?? '')
+      if (err.code === 1 && /Invalid regular expression|Unmatched|brackets|not balanced|character class|character range|malformed|repetition|empty/i.test(stderr)) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: `grep failed: ${stderr.split('\n')[0]}` }],
+        }
+      }
+      if (err.code === 1) {
+        return { content: [{ type: 'text', text: '(no matches)' }] }
+      }
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `grep failed: ${err.message.split('\n')[0]}` }],
+      }
+    }
+  })
+)
+
+// ============ Tool 5: git_status ============
+
+server.tool(
+  'git_status',
+  'git status --porcelain,返回机器可读的改动文件列表(每行:XY filename)。',
+  {
+    cwd: z.string().optional().describe('git 仓库路径(限白名单内),默认 cwd'),
+  },
+  async ({ cwd }) => serializedTool(async () => {
+    const target = cwd ?? process.cwd()
+    const check = isPathSafe(target)
+    if (!check.safe) {
+      return { isError: true, content: [{ type: 'text', text: `🚫 ${check.reason}` }] }
+    }
+    try {
+      const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd: check.abs })
+      return { content: [{ type: 'text', text: stdout || '(working tree clean)' }] }
+    } catch (err: any) {
+      const msg = String(err.stderr ?? err.message ?? '').split('\n')[0]
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `git_status failed: ${msg || 'not a git repository?'}` }],
+      }
+    }
+  })
+)
+
+// ============ Tool 6: git_diff ============
+
+server.tool(
+  'git_diff',
+  'git diff(可指定文件 / 可选 --staged),返回 unidiff 文本。空 diff 返回 "(no diff)"。',
+  {
+    cwd: z.string().optional().describe('git 仓库路径(限白名单内),默认 cwd'),
+    file: z.string().optional().describe('只看某个文件的 diff'),
+    staged: z.boolean().optional().default(false),
+  },
+  async ({ cwd, file, staged }) => serializedTool(async () => {
+    const target = cwd ?? process.cwd()
+    const check = isPathSafe(target)
+    if (!check.safe) {
+      return { isError: true, content: [{ type: 'text', text: `🚫 ${check.reason}` }] }
+    }
+    try {
+      const args = ['diff']
+      if (staged) args.push('--staged')
+      if (file) args.push('--', file)
+      const { stdout } = await execFileAsync('git', args, { cwd: check.abs, maxBuffer: 5 * 1024 * 1024 })
+      return { content: [{ type: 'text', text: stdout || '(no diff)' }] }
+    } catch (err: any) {
+      const msg = String(err.stderr ?? err.message ?? '').split('\n')[0]
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `git_diff failed: ${msg || 'not a git repository?'}` }],
+      }
+    }
+  })
+)
+
+// ============ Resource: file:// 目录树 ============
+
+server.resource(
+  'file-tree',
+  new ResourceTemplate('file:///{+path}', { list: undefined }),
+  async (uri) => {
+    // uri.pathname 形如 "/AI-agents" 或 "/W7-8-agent/ai-agent-demo"
+    const subPath = decodeURIComponent(uri.pathname.replace(/^\//, ''))
+    // 拒绝子路径含 ..(防 path traversal)或以 / 开头
+    if (subPath.includes('..')) {
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: 'text/plain',
+          text: `🚫 resource sub-path "${subPath}" contains ".." (path traversal denied)`,
+        }],
+      }
+    }
+    const target = subPath ? resolve(ALLOWED_ROOTS[0], subPath) : ALLOWED_ROOTS[0]
+    const check = isPathSafe(target)
+    if (!check.safe) {
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: 'text/plain',
+          text: `🚫 ${check.reason}`,
+        }],
+      }
+    }
+    try {
+      const stat = await fs.stat(check.abs!)
+      if (stat.isFile()) {
+        const text = await fs.readFile(check.abs!, 'utf8')
+        return {
+          contents: [{
+            uri: uri.href,
+            mimeType: 'text/plain',
+            text: text.slice(0, 5000) + (text.length > 5000 ? '\n... (truncated)' : ''),
+          }],
+        }
+      }
+      // 目录:列 1 层
+      const entries = await fs.readdir(check.abs!, { withFileTypes: true })
+      const lines = entries
+        .map(e => `${e.isDirectory() ? '[DIR] ' : '[FILE]'} ${e.name}`)
+        .sort()
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: 'text/plain',
+          text: lines.join('\n') || '(empty)',
+        }],
+      }
+    } catch (err: any) {
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: 'text/plain',
+          text: `file:// resource failed: ${err.code ?? err.message}`,
+        }],
+      }
+    }
+  }
+)
+
+// ============ 启动 ============
+
+;(async () => {
+  const transport = new StdioServerTransport()
+  await server.connect(transport)
+  console.error('[mcp-server] connected, waiting for JSON-RPC messages on stdin')
+})().catch(err => {
+  console.error('[mcp-server] fatal:', err)
+  process.exit(1)
+})

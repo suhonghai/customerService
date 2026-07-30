@@ -1,0 +1,41 @@
+# W11 ERP frontend — .dockerignore
+
+# Build artifacts(在 image 内重新生成)
+node_modules
+dist
+dist-ssr
+build
+coverage
+
+# Logs / runtime data
+logs
+*.log
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+*.swp
+*.suo
+
+# Docker 自身递归(注:nginx.conf 必须保留给 COPY 进 image)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI / 部署
+.github
+deploy
+README.md
+CLAUDE.md
+
+# Rollup 可视化产物(stats.html)
+dist/stats.html

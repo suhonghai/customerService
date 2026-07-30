@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/* ============================================================
+   W9-UI: Warm Tech / Cozy AI design tokens
+   - 暖橙 brand + 米白 surface + 深咖 text
+   - CSS variables 注入(不 hardcode 在 JSX)
+   ============================================================ */
+:root {
+  /* 主色 — 暖橙 */
+  --brand-primary: #ff6b35;
+  --brand-primary-hover: #e85a26;
+  --brand-primary-soft: #fff1eb;
+
+  /* 文字 — 深咖 */
+  --text-primary: #1f1611;
+  --text-secondary: #6b5d52;
+  --text-tertiary: #a89889;
+
+  /* 背景 — 米白(不是纯白) */
+  --surface: #fffaf6;
+  --surface-elevated: #ffffff;
+  --border: #f5ebe5;
+  --border-strong: #e8d9cd;
+
+  /* 状态色 */
+  --success: #2d9d5c;
+  --warning: #e89043;
+  --error: #c84a3a;
+}
+
+/* ============================================================
+   Base typography
+   - body 用 Plus Jakarta Sans
+   - 标题(h1-h3 / .display)用 Bricolage Grotesque
+   - 代码(mono)用 JetBrains Mono
+   - 字体由 next/font/google 在 layout.tsx 加载,通过 CSS variables 注入
+   ============================================================ */
+@layer base {
+  body {
+    background-color: var(--surface);
+    color: var(--text-primary);
+    font-family: var(--font-body), 'PingFang SC', 'Hiragino Sans GB',
+      'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  .display {
+    font-family: var(--font-display), 'PingFang SC', 'Hiragino Sans GB',
+      sans-serif;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+  }
+
+  code,
+  pre,
+  .mono {
+    font-family: var(--font-mono), 'JetBrains Mono', 'Menlo', monospace;
+  }
+}
+
+/* ============================================================
+   Motion — 克制不张扬
+   ============================================================ */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer utilities {
+  .animate-fade-in-up {
+    animation: fadeInUp 0.3s ease-out;
+  }
+}
+
+/* ============================================================
+   Grain texture overlay
+   - 在 layout.tsx 的 <body> 末尾挂一个 div.grain-overlay
+   - SVG filter 生成有机噪点(feTurbulence),opacity 0.025
+   - pointer-events: none 不挡交互
+   - z-index 0 浮在最底层
+   ============================================================ */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  z-index: 0;
+}

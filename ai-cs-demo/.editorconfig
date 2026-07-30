@@ -1,0 +1,37 @@
+# ai-cs-demo — 跨编辑器一致
+# https://editorconfig.org
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Next.js TS/JS/TSX/JSX — 2 空格 + LF(沿用 S3 .prettierrc)
+[*.{ts,tsx,js,jsx}]
+quote_type = single
+
+# SQL migration 文件 — 4 空格 + LF(可读性)
+[*.sql]
+indent_size = 4
+
+# Markdown — 保留尾部空白(用于换行)
+[*.md]
+trim_trailing_whitespace = false
+
+# YAML(GitHub Actions workflows)— 2 空格
+[*.{yml,yaml}]
+indent_size = 2
+
+# JSON — 2 空格(已有 .prettierrc 控)
+[*.json]
+indent_size = 2
+
+# Lockfile(pnpm-lock.yaml)— 不修改
+[pnpm-lock.yaml]
+indent_style = ignore
+indent_size = ignore

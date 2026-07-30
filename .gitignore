@@ -1,0 +1,52 @@
+# ====== 环境 ======
+.env
+.env.local
+.env.*.local
+# 多环境 compose 编排变量(2026-07-13 拆分)
+.env.development
+.env.test
+.env.uat
+.env.production
+# .env.example 是模板,允许入仓
+
+# ====== MySQL / Chroma 本地数据 ======
+logs/
+data/
+chroma-data/
+uploads/
+
+# ====== Node ======
+node_modules/
+.pnp
+.pnp.js
+
+# ====== Build ======
+dist/
+build/
+coverage/
+
+# ====== Prisma ======
+prisma/dev.db*
+prisma/migrations/dev.db*
+
+# ====== IDE ======
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# ====== Logs ======
+*.log
+
+# ====== Dev 进程运行时文件(scripts/dev-process.sh 生成,SkillHub PID 生命周期) ======
+# logs/ 已整目录忽略;下面显式声明运行时 PID/日志意图,便于阅读。
+# 只忽略 logs/ 下的运行时产物,不误伤 scripts/dev-process.sh 等源码。
+logs/*.pid
+*.pid
+logs/dev-*.log
+
+# ====== Test cache ======
+.jest-cache/
+
+# ====== Husky 9 internal shim (auto-generated, do not commit) ======
+.husky/_/

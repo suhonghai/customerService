@@ -1,0 +1,112 @@
+name: Check Engineering Redlines
+
+on:
+  pull_request:
+    paths:
+      - 'erp-admin-backend/src/**'
+      - 'erp-admin-backend/prisma/**'
+      - 'erp-admin-backend/test/**'
+      - '.github/workflows/check-engineering-redlines.yml'
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+    paths:
+      - 'erp-admin-backend/src/**'
+      - 'erp-admin-backend/prisma/**'
+  workflow_dispatch:
+
+# W11-P1-4 / S9: grep-based engineering redlines. Catches obvious anti-patterns that
+# linters cannot: hardcoded credentials, stray console statements, hardcoded Prisma DSN.
+#
+# Why grep (not ESLint/Custom rule):
+# - Cheap, zero dependency on local toolchain version
+# - Universal across stack changes
+# - Easy to whitelist (path/file patterns)
+#
+# False positive handling: do NOT lower the threshold, add to whitelist below.
+
+concurrency:
+  group: check-engineering-redlines-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  redlines:
+    name: Engineering Redlines (grep-based guard)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check 1 — No hardcoded credentials
+        # Forbid plaintext password / secret / token / apiKey assignments.
+        # Whitelist: tests, fixtures, migrations, i18n.
+        run: |
+          MATCHES=$(grep -RnE "(password|secret|apiKey|api_key|token)\s*[:=]\s*['\"][^'\"]+['\"]" \
+            --include="*.ts" --include="*.tsx" \
+            --exclude-dir="node_modules" --exclude-dir="dist" --exclude-dir="coverage" \
+            --exclude-dir="__tests__" --exclude-dir="test" \
+            --exclude="*.test.ts" --exclude="*.spec.ts" --exclude="*.fixture.ts" \
+            erp-admin-backend/src/ || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::error::Hardcoded credential detected in production code:"
+            echo "$MATCHES"
+            echo ""
+            echo "Move secrets to env vars or a secrets manager."
+            exit 1
+          fi
+          echo "::notice::Check 1 passed: no hardcoded credentials"
+
+      - name: Check 2 — No console.log/debug/warn in production code
+        # Forbid console.log / debug / warn in production code.
+        # Whitelist: main.ts / bootstrap.ts (NestJS app entrypoints) +
+        #   common/guards/* (NestJS guards may run before the DI logger
+        #   container is built, so console.warn is acceptable for dev-facing
+        #   diagnostics) + tests.
+        # NOTE: grep --exclude-dir matches the BASENAME of any directory at
+        # any depth. There is exactly one "guards" directory in this repo
+        # (src/common/guards/), so excluding by basename is safe.
+        # Use the structured logger (Pino / NestJS Logger) for normal code paths.
+        run: |
+          MATCHES=$(grep -RnE "console\.(log|debug|warn)" \
+            --include="*.ts" --include="*.tsx" \
+            --exclude-dir="node_modules" --exclude-dir="dist" \
+            --exclude-dir="__tests__" --exclude-dir="test" \
+            --exclude-dir="guards" \
+            --exclude="*.test.ts" --exclude="*.spec.ts" \
+            --exclude="main.ts" --exclude="bootstrap.ts" \
+            erp-admin-backend/src/ || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::error::console.log/debug/warn in production code:"
+            echo "$MATCHES"
+            echo ""
+            echo "Use the structured logger (Pino / NestJS Logger) instead of console.*."
+            exit 1
+          fi
+          echo "::notice::Check 2 passed: no console statements in production"
+
+      - name: Check 3 — No hardcoded Prisma DSN
+        # Forbid hardcoded mysql://user:pass@host DSN.
+        # schema.prisma uses env("DATABASE_URL") which is the legal pattern.
+        run: |
+          MATCHES=$(grep -RnE "mysql://[^:]+:[^@]+@" \
+            --include="*.ts" --include="*.prisma" \
+            --exclude-dir="node_modules" --exclude-dir="dist" \
+            --exclude="schema.prisma" \
+            erp-admin-backend/ || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::error::Hardcoded Prisma DSN (mysql://user:pass@host) detected:"
+            echo "$MATCHES"
+            echo ""
+            echo "Use env('DATABASE_URL') instead of hardcoding the DSN."
+            exit 1
+          fi
+          echo "::notice::Check 3 passed: no hardcoded Prisma DSN"
+
+      - name: Summary
+        if: success()
+        run: echo "All engineering redlines passed"

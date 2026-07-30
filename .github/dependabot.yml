@@ -1,0 +1,91 @@
+# =====================================================================================
+# Dependabot configuration for W11 ERP Admin
+# =====================================================================================
+# Adapted from skillhub .github/dependabot.yml
+# (skillhub uses Maven + npm + GHA + Docker; W11 is Node-only, no Maven, no
+# custom Docker base images, so we drop those ecosystems).
+#
+# Update strategy:
+#   - GitHub Actions: daily, with 14-day cooldown to avoid bleeding-edge releases.
+#     Group official + namespace actions to consolidate review.
+#   - npm (backend): weekly monday, security-only by default
+#     (open-pull-requests-limit: 0 for general version updates; security
+#     advisories still go through). Avoids PR flood while still surfacing CVEs.
+#   - npm (frontend): weekly monday, security-only same as backend for consistency.
+#
+# Reviewers:
+#   - Currently @SueSea is the sole stakeholder. When the team grows, switch
+#     to @<org>/<team> handles.
+#
+# Documentation:
+#   https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+# =====================================================================================
+
+version: 2
+updates:
+  # ---------------------------------------------------------------------------
+  # GitHub Actions
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    reviewers:
+      - "SueSea"
+    cooldown:
+      # Don't propose any action release that is less than 14 days old —
+      # gives upstream time to surface regressions before we adopt.
+      default-days: 14
+    groups:
+      # Group all non-major updates of official GitHub Actions together —
+      # they share release cadence and risk profile.
+      official-actions:
+        applies-to: version-updates
+        patterns:
+          - "actions/*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group sub-actions used in our workflows that share lifecycle.
+      script-actions:
+        applies-to: version-updates
+        patterns:
+          - "actions/github-script"
+          - "actions/checkout"
+          - "actions/setup-*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------------
+  # npm (backend) — security-only by default
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/erp-admin-backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "SueSea"
+    # Surface security advisories only. General version bumps go through manual
+    # review (or coordinated with NestJS / Prisma major-version migrations).
+    open-pull-requests-limit: 0
+    # Notes for future activation (when team has bandwidth):
+    #   - Set open-pull-requests-limit > 0
+    #   - Add `groups:` for @nestjs/* / @prisma/* / prisma-* / typescript /
+    #     eslint-* / jest-* to consolidate PR review.
+
+  # ---------------------------------------------------------------------------
+  # npm (frontend) — security-only by default
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/erp-admin-frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "SueSea"
+    open-pull-requests-limit: 0
+    # Notes for future activation:
+    #   - Add `groups:` for react / react-dom / antd / @ant-design/* /
+    #     vite / vitest / typescript / eslint-* / oxlint* to consolidate review.

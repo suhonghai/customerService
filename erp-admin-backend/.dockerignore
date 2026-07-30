@@ -1,0 +1,47 @@
+# W11 ERP backend — .dockerignore
+# 排除一切不进 image 的本地产物
+
+# Build artifacts(在 image 内重新生成)
+node_modules
+dist
+dist-ssr
+coverage
+*.tsbuildinfo
+
+# Logs / runtime data
+logs
+*.log
+data
+.env
+.env.local
+.env.*.local
+
+# Prisma 本地库(迁移文件保留)
+prisma/dev.db*
+
+# Tests
+test
+.jest-cache
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+*.swp
+*.suo
+
+# Docker 自身递归(注:entrypoint.sh 必须保留给 COPY 进 image)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI / 部署
+.github
+deploy
+README.md
+CLAUDE.md

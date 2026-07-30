@@ -1,0 +1,183 @@
+/**
+ * MCP 端到端:自启 dev server,跑 2 演示 + 1 边界
+ * 用法:node scripts/test-mcp-e2e.mjs
+ * 前置:docker start chroma-rag 已在跑,Chroma 8001 通
+ *
+ * 设计:self-contained(option B) — 一个文件搞定
+ *  - 启动 pnpm dev 子进程
+ *  - 轮询 :9528 直到就绪(最多 60s)
+ *  - 跑 3 case
+ *  - finally 关 dev / 关 browser
+ */
+import { chromium } from 'playwright'
+import { spawn } from 'node:child_process'
+import process from 'node:process'
+
+const URL = 'http://localhost:9528'
+// W7-8 chat input 是 <input placeholder="说点什么...">,不是 textarea
+const INPUT_SEL = 'input[placeholder*="说点什么"], input[name="message"], textarea'
+const SEND_BTN_SEL = 'button[type="submit"]'
+
+// 启 chroma(best-effort:已起就忽略,没装 docker 就忽略)
+function tryStartChroma() {
+  return new Promise((resolve) => {
+    const p = spawn('docker', ['start', 'chroma-rag'], { stdio: 'ignore' })
+    p.on('exit', (code) => resolve(code))
+    p.on('error', () => resolve(null))
+    setTimeout(() => resolve(null), 3000)
+  })
+}
+
+// 启 dev server
+function startDev() {
+  console.log('  [boot] pnpm dev 启动中...')
+  const child = spawn('pnpm', ['dev'], {
+    cwd: process.cwd(),
+    env: { ...process.env, FORCE_COLOR: '0' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  child.stdout.on('data', (d) => {
+    const s = d.toString()
+    if (s.includes('Ready') || s.includes('ready') || s.includes('9528')) {
+      console.log('  [boot] dev stdout:', s.trim().split('\n').slice(-1)[0])
+    }
+  })
+  child.stderr.on('data', (d) => {
+    const s = d.toString()
+    if (/error|Error/i.test(s)) console.log('  [boot] dev stderr:', s.trim().slice(0, 200))
+  })
+  return child
+}
+
+async function waitForServer(url, timeoutMs = 60000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url)
+      if (res.status < 500) return true
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  return false
+}
+
+async function sendAndWait(page, question) {
+  await page.goto(URL, { waitUntil: 'domcontentloaded' })
+  await page.waitForSelector(INPUT_SEL, { timeout: 15000 })
+  // 等页面 hydrate 完成
+  await page.waitForTimeout(1500)
+  // 清空残留
+  await page.fill(INPUT_SEL, '')
+  await page.fill(INPUT_SEL, question)
+  // 用 form submit 而不是 Enter(input + form 的隐式 submit 在 Playwright 里不稳)
+  await page.click(SEND_BTN_SEL)
+  console.log(`  [send] "${question.slice(0, 30)}..." 已发送,等流式输出稳定`)
+  // 等决策面板或 text 出来(qwen3.7-plus 思考 5-10s,工具调用 5-20s,留 60s 余地)
+  await page.waitForTimeout(20000)
+  // 再多等一会儿,让流式输出稳下来
+  await page.waitForTimeout(20000)
+  return await page.content()
+}
+
+const results = []
+function record(name, ok, detail) {
+  results.push({ name, ok, detail })
+  console.log(`  ${ok ? '✅' : '❌'} ${name}: ${detail}`)
+}
+
+async function run() {
+  // 0. best-effort 起 chroma(不阻塞)
+  console.log('[0/3] chroma 容器 best-effort 启动...')
+  await tryStartChroma()
+
+  // 1. 启 dev server
+  console.log('[1/3] 启动 dev server...')
+  const dev = startDev()
+  const ready = await waitForServer(URL, 90000)
+  if (!ready) {
+    console.log('  ❌ dev server 90s 内没起来,放弃')
+    dev.kill('SIGKILL')
+    process.exit(1)
+  }
+  console.log('  [boot] dev server 就绪,继续跑 case')
+
+  let browser
+  try {
+    browser = await chromium.launch()
+    const page = await browser.newPage()
+    page.on('console', (m) => {
+      if (m.type() === 'error') console.log('  [page-err]', m.text().slice(0, 200))
+    })
+    page.on('pageerror', (e) => console.log('  [page-pageerror]', e.message.slice(0, 200)))
+    page.on('requestfailed', (r) => console.log('  [page-reqfail]', r.url(), r.failure()?.errorText))
+
+    // 演示 1:代码 review
+    console.log('\n── 演示 1:代码 review ──')
+    try {
+      const html = await sendAndWait(
+        page,
+        '帮我看看 W7-8-agent/ai-agent-demo 本周改动了什么,挑 1 个 MCP 工具文件讲讲实现',
+      )
+      const mcpMentioned = /📁|read_file|git_status|git_diff|grep/.test(html)
+      const debugMatches = html.match(/📁|read_file|git_status|git_diff|grep/g) || []
+      record(
+        'demo-1 code review',
+        mcpMentioned,
+        mcpMentioned ? `MCP 工具出现 (${debugMatches.length} 处: ${debugMatches.slice(0, 5).join(', ')})` : '未看到 MCP 工具',
+      )
+    } catch (e) {
+      record('demo-1 code review', false, e.message)
+    }
+
+    // 演示 2:知识库扩充
+    console.log('\n── 演示 2:知识库扩充 ──')
+    try {
+      const html = await sendAndWait(
+        page,
+        '把 W7-8-agent/ai-agent-demo/src/lib/agent/tools/ 里所有 ts 工具文件读出来总结下',
+      )
+      const mcpAndLocal = /list_dir|read_file/.test(html)
+      const debugMatches = html.match(/list_dir|read_file/g) || []
+      record(
+        'demo-2 knowledge ingest',
+        mcpAndLocal,
+        mcpAndLocal ? `list_dir/read_file 出现 (${debugMatches.length} 处)` : '未出现',
+      )
+    } catch (e) {
+      record('demo-2 knowledge ingest', false, e.message)
+    }
+
+    // 边界 1:越界
+    console.log('\n── 边界 1:路径越界 ──')
+    try {
+      const html = await sendAndWait(page, '帮我读一下 /etc/passwd')
+      const denied = /🚫|路径越界|outside allowed/.test(html)
+      const debugMatches = html.match(/🚫|路径越界|outside allowed|拒绝|越界/g) || []
+      record(
+        'edge path denied',
+        denied,
+        denied ? `友好错误 (匹配: ${debugMatches.slice(0, 3).join(', ')})` : `未拦截(看到的: ${debugMatches.slice(0, 3).join(', ') || '空'})`,
+      )
+    } catch (e) {
+      record('edge path denied', false, e.message)
+    }
+  } finally {
+    if (browser) await browser.close()
+    console.log('\n[cleanup] kill dev server...')
+    dev.kill('SIGTERM')
+    await new Promise((r) => setTimeout(r, 2000))
+    dev.kill('SIGKILL')
+  }
+
+  console.log('\n==========================')
+  const passed = results.filter((r) => r.ok).length
+  console.log(`PASS: ${passed} / ${results.length}`)
+  if (passed !== results.length) process.exit(1)
+}
+
+run().catch((e) => {
+  console.error('FATAL', e)
+  process.exit(2)
+})

@@ -1,0 +1,93 @@
+# =============================================================================
+# W11 ERP Admin — base compose(只 mysql + chroma,共享依赖)
+# 各 env 共享本文件,叠加 docker-compose.{env}.yml:
+#   docker compose --env-file .env.{env} \
+#                  -f docker-compose.yml \
+#                  -f docker-compose.{env}.yml \
+#                  -p ${COMPOSE_PROJECT_NAME} up -d
+# =============================================================================
+
+services:
+  mysql:
+    image: mysql:8.0
+    command:
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+      - "--default-authentication-plugin=mysql_native_password"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?err}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?err}
+      MYSQL_USER: ${MYSQL_USER:?err}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?err}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - w11-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "${MYSQL_USER}", "-p${MYSQL_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  chroma:
+    image: chromadb/chroma:latest
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=False
+      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=["http://localhost:9529","http://localhost:3001","http://127.0.0.1:9529","http://127.0.0.1:3001","*"]
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - w11-net
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8000 && echo -e \"GET /api/v2/heartbeat HTTP/1.0\\r\\nHost: 127.0.0.1\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  ai-cs-demo:
+    build:
+      context: ./ai-cs-demo
+      dockerfile: Dockerfile
+      args:
+        APP_ENV: ${APP_ENV:-production}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    image: w11-ai-cs-demo:${APP_ENV:-production}
+    container_name: ${COMPOSE_PROJECT_NAME}-ai-cs-demo
+    env_file:
+      - ./ai-cs-demo/.env.${APP_ENV:-production}
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 9529
+      ERP_ADMIN_URL: http://erp-admin-backend:3001
+      CHROMA_URL: http://chroma:8000
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:?err - INTERNAL_TOKEN required}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${AI_CS_PORT:-9529}:9529"
+    depends_on:
+      chroma:
+        condition: service_healthy
+    networks:
+      - w11-net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9529/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  w11-net:
+    name: ${COMPOSE_PROJECT_NAME:-w11-erp}-net
+
+volumes:
+  mysql_data:
+    name: ${COMPOSE_PROJECT_NAME:-w11-erp}-mysql-data
+  chroma_data:
+    name: ${COMPOSE_PROJECT_NAME:-w11-erp}-chroma-data

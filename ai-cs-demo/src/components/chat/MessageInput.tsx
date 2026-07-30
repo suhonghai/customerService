@@ -1,0 +1,105 @@
+'use client'
+
+/**
+ * MessageInput:聊天输入框 + 发送/停止按钮。
+ *
+ * 抽离自 page.tsx 内联 JSX,父组件通过 props 传入当前 input 值和事件 handler。
+ * 不直接 useState input,让父组件决定何时清空 / 何时发送。
+ */
+
+import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
+
+export interface MessageInputProps {
+  value: string
+  onChange: (v: string) => void
+  onSubmit: () => void
+  /** 流式生成中显示"停止"按钮(调用 useChat.stop);否则显示"发送" */
+  isLoading: boolean
+  onStop: () => void
+}
+
+export function MessageInput({
+  value,
+  onChange,
+  onSubmit,
+  isLoading,
+  onStop,
+}: MessageInputProps) {
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      onSubmit()
+    }
+  }
+
+  function handleSubmit(e?: FormEvent) {
+    if (e) e.preventDefault()
+    onSubmit()
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="px-4 md:px-6 py-4 border-t"
+      style={{
+        background: 'var(--surface)',
+        borderColor: 'var(--border)',
+      }}
+    >
+      <div className="flex gap-2 md:gap-3 items-end max-w-3xl mx-auto">
+        <textarea
+          value={value}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
+            onChange(e.target.value)
+          }
+          onKeyDown={handleKeyDown}
+          placeholder="说点什么..."
+          rows={1}
+          disabled={isLoading}
+          className="flex-1 rounded-2xl px-4 py-3 outline-none resize-none transition-all mono"
+          style={{
+            background: 'var(--surface-elevated)',
+            border: '1px solid var(--border)',
+            color: 'var(--text-primary)',
+            maxHeight: '8rem',
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = 'var(--brand-primary)'
+            e.currentTarget.style.boxShadow = '0 0 0 3px var(--brand-primary-soft)'
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = 'var(--border)'
+            e.currentTarget.style.boxShadow = 'none'
+          }}
+        />
+        {isLoading ? (
+          <button
+            type="button"
+            onClick={onStop}
+            data-testid="stop-btn"
+            className="rounded-2xl text-white px-5 py-3 transition-all active:scale-95"
+            style={{ background: 'var(--error)' }}
+          >
+            停止
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={!value.trim()}
+            data-testid="send-btn"
+            className="rounded-2xl text-white px-5 py-3 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ background: 'var(--brand-primary)' }}
+          >
+            发送
+          </button>
+        )}
+      </div>
+      <div
+        className="text-[11px] text-center mt-2"
+        style={{ color: 'var(--text-tertiary)' }}
+      >
+        Enter 发送 · Shift+Enter 换行
+      </div>
+    </form>
+  )
+}

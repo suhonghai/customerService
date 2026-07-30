@@ -1,0 +1,105 @@
+# =============================================================================
+# W11 ERP Admin — production overlay
+# 5 服务全 docker(生产)
+# 子项目 secrets 走 env_file 加载子项目 .env.production
+# 生产不暴露 mysql / chroma 端口到 host
+# =============================================================================
+
+services:
+  mysql:
+    expose:
+      - "3306"
+
+  chroma:
+    expose:
+      - "8000"
+
+  erp-admin-backend:
+    build:
+      context: ./erp-admin-backend
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: production
+        BUILD_ENV: production
+    image: w11-backend:production
+    container_name: ${COMPOSE_PROJECT_NAME}-backend
+    env_file:
+      - ./erp-admin-backend/.env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      CHROMA_URL: http://chroma:8000
+      # V11 硬编码:prod 模式 TTL 必须 access 1h + refresh 7d(覆盖 env_file 同名变量)
+      # .env.production 里同名字段改成什么值都不会生效,避免双重维护混淆
+      JWT_EXPIRES_IN: "3600"
+      JWT_REFRESH_EXPIRES_IN: "604800"
+      LOG_LEVEL: "warn"
+    ports:
+      - "${BACKEND_PORT}:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    networks:
+      - w11-net
+    volumes:
+      - backend_uploads:/data/uploads
+      - backend_logs:/data/logs/erp-admin
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3001/api/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: always
+
+  erp-admin-frontend:
+    build:
+      context: ./erp-admin-frontend
+      dockerfile: Dockerfile
+      args:
+        BUILD_ENV: production
+    image: w11-frontend:production
+    container_name: ${COMPOSE_PROJECT_NAME}-frontend
+    env_file:
+      - ./erp-admin-frontend/.env.production
+    ports:
+      - "${FRONTEND_PORT}:80"
+    depends_on:
+      - erp-admin-backend
+    networks:
+      - w11-net
+    restart: always
+
+  ai-cs-demo:
+    build:
+      context: ./ai-cs-demo
+      dockerfile: Dockerfile
+      args:
+        APP_ENV: production
+    image: w11-ai-cs-demo:production
+    container_name: ${COMPOSE_PROJECT_NAME}-ai-cs-demo
+    env_file:
+      - ./ai-cs-demo/.env.production
+    environment:
+      APP_ENV: production
+      NODE_ENV: production
+      PORT: 9529
+      ERP_ADMIN_URL: http://erp-admin-backend:3001
+      CHROMA_URL: http://chroma:8000
+    ports:
+      - "${AI_CS_PORT}:9529"
+    depends_on:
+      - erp-admin-backend
+      - chroma
+    networks:
+      - w11-net
+    restart: always
+
+volumes:
+  backend_uploads:
+    name: ${COMPOSE_PROJECT_NAME}-backend-uploads
+  backend_logs:
+    name: ${COMPOSE_PROJECT_NAME}-backend-logs

@@ -1,0 +1,85 @@
+# =====================================================================================
+# Dependabot configuration for ai-cs-demo (W9-10 customer-service)
+# =====================================================================================
+# Adapted from W11 ERP Admin .github/dependabot.yml.
+#
+# W11 had two npm ecosystems (backend + frontend). ai-cs-demo is a single-package
+# Next.js 16 app, so we collapse to a single npm entry pointing at the package
+# root.
+#
+# Update strategy:
+#   - GitHub Actions: daily, with 14-day cooldown to avoid bleeding-edge releases.
+#     Group official + namespace actions to consolidate review.
+#   - npm (ai-cs-demo): weekly monday, security-only by default
+#     (open-pull-requests-limit: 0 for general version updates; security
+#     advisories still go through). Avoids PR flood while still surfacing CVEs.
+#
+# Reviewers:
+#   - Currently @SueSea is the sole stakeholder. When the team grows, switch
+#     to @<org>/<team> handles.
+#
+# No docker ecosystem: ai-cs-demo uses public base images (node:20-alpine) and
+# bumping them is a deliberate decision, not a default.
+#
+# Documentation:
+#   https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+# =====================================================================================
+
+version: 2
+updates:
+  # ---------------------------------------------------------------------------
+  # GitHub Actions
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      timezone: "Asia/Shanghai"
+    reviewers:
+      - "SueSea"
+    cooldown:
+      # Don't propose any action release that is less than 14 days old —
+      # gives upstream time to surface regressions before we adopt.
+      default-days: 14
+    groups:
+      # Group all non-major updates of official GitHub Actions together —
+      # they share release cadence and risk profile.
+      official-actions:
+        applies-to: version-updates
+        patterns:
+          - "actions/*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group sub-actions used in our workflows that share lifecycle.
+      script-actions:
+        applies-to: version-updates
+        patterns:
+          - "actions/github-script"
+          - "actions/checkout"
+          - "actions/setup-*"
+          - "actions/upload-artifact"
+          - "actions/cache"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------------
+  # npm (ai-cs-demo single package) — security-only by default
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/W9-10-customer-service/ai-cs-demo"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Shanghai"
+    reviewers:
+      - "SueSea"
+    # Surface security advisories only. General version bumps go through manual
+    # review (or coordinated with Next.js / React / zod major-version migrations).
+    open-pull-requests-limit: 0
+    # Notes for future activation (when team has bandwidth):
+    #   - Set open-pull-requests-limit > 0
+    #   - Add `groups:` for next / react / react-dom / zod / typescript /
+    #     eslint-* / vitest* / @vitest/* to consolidate PR review.

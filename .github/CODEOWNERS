@@ -1,0 +1,36 @@
+# W11 ERP Admin — CODEOWNERS
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# 语法:每行 `<pattern>  <owner>`
+# - 最后匹配的规则生效(后写覆盖先写)
+# - owner 可以是 @user / @org/team-name / 邮箱
+# - 注意:GitHub user handle 必须真实存在,否则 CODEOWNERS 静默不生效
+
+# 默认:所有 W11-erp-admin/** 改动需 @SueSea review
+# 注意:W11 仓库当前单 stakeholder,后续团队扩展可改为 @org/team-backend 等
+*                       @SueSea
+
+# 后端 NestJS 改动 — backend owner
+/erp-admin-backend/     @SueSea
+
+# 数据库 schema 改动 — 需特别 review(prisma 兼容性)
+/erp-admin-backend/prisma/  @SueSea
+
+# 前端 React 改动 — frontend owner
+/erp-admin-frontend/    @SueSea
+
+# GitHub Actions 改动(谨慎,影响 CI/CD)
+/.github/workflows/     @SueSea
+
+# PR template / CODEOWNERS / dependabot(元配置)
+/.github/CODEOWNERS     @SueSea
+/.github/dependabot.yml        @SueSea
+/.github/pull_request_template.md  @SueSea
+
+# docs 改动(plan / roadmap)
+/docs/                  @SueSea
+
+# 根 Makefile / docker-compose / .env.example
+/Makefile               @SueSea
+/docker-compose*.yml    @SueSea
+/.env.example           @SueSea
