@@ -184,6 +184,12 @@ export class InternalService {
         ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
         ...(dto.title ? { visitorName: dto.title } : {}),
       },
+    }).then(async (session) => {
+      // cs-round-002:被动触发 reaper,fire-and-forget(不阻塞主路径)
+      this.reapStaleStreaming().catch((e) =>
+        this.logger.warn(`upsertSession 后台 reaper 失败: ${(e as Error).message}`),
+      );
+      return session;
     });
   }
 
@@ -620,6 +626,49 @@ export class InternalService {
       { content: dto.content, internal: dto.internal } as any,
       1, // 系统占位 creatorId(同 createEscalation / createTicket)
     );
+  }
+
+  // ============================================================
+  // cs-round-002(2026-07-31):assistant placeholder 孤儿收敛(reaper)
+  //   触发:每次 upsertSession 成功后 fire-and-forget 调一次,或手动 POST /reap-orphans
+  //   阈值:5 分钟(远大于 maxDuration=60s,不会误杀正在生成的流)
+  //   操作:status 2 → 4 (error),emit 'message_status' WS 给 session room
+  // ============================================================
+  async reapStaleStreaming(
+    maxAgeMs: number = 5 * 60 * 1000,
+    batchSize: number = 100,
+  ): Promise<{ reaped: number; messageIds: number[] }> {
+    const threshold = new Date(Date.now() - maxAgeMs);
+    const stale = await this.prisma.csMessage.findMany({
+      where: { status: 2, updatedAt: { lt: threshold } },
+      take: batchSize,
+      select: { id: true, sessionId: true },
+    });
+    if (stale.length === 0) return { reaped: 0, messageIds: [] };
+    const ids = stale.map((s) => s.id);
+    await this.prisma.csMessage.updateMany({
+      where: { id: { in: ids } },
+      data: { status: 4 },
+    });
+    // emit WS 给 session room
+    for (const m of stale) {
+      try {
+        this.realtime.server
+          .to(`session:${m.sessionId}`)
+          .emit('message_status', {
+            messageId: m.id,
+            sessionId: m.sessionId,
+            status: 4,
+            reason: 'stale-streaming-reaped',
+          });
+      } catch (e) {
+        this.logger.warn(
+          `reap emit 失败 session=${m.sessionId} msg=${m.id}: ${(e as Error).message}`,
+        );
+      }
+    }
+    this.logger.warn(`reapStaleStreaming: 收敛 ${stale.length} 条 status=2 → status=4`);
+    return { reaped: stale.length, messageIds: ids };
   }
 
   // ============================================================

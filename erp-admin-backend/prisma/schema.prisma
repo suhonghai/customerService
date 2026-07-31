@@ -184,20 +184,24 @@ model CsSession {
 }
 
 model CsMessage {
-  id        Int      @id @default(autoincrement())
-  sessionId Int      @map("session_id")
-  role      String   @db.VarChar(20) // user / assistant / system / tool
-  content   String   @db.Text
-  parts     Json?
-  metadata  Json?
-  status    Int      @default(1)
-  userId    Int?     @map("user_id")
-  createdAt DateTime @default(now()) @map("created_at")
+  id                  Int       @id @default(autoincrement())
+  sessionId           Int       @map("session_id")
+  role                String    @db.VarChar(20) // user / assistant / system / tool
+  content             String    @db.Text
+  parts               Json?
+  metadata            Json?
+  status              Int       @default(1) // 1 normal / 2 streaming / 3 interrupted / 4 error
+  userId              Int?      @map("user_id")
+  // 2026-07-31 cs-round-001 + cs-round-002:streaming 起播 + 自动 updatedAt
+  streamingStartedAt  DateTime? @map("streaming_started_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   session CsSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user    User?     @relation(fields: [userId], references: [id])
 
   @@index([sessionId, createdAt])
+  @@index([status, updatedAt]) // cs-round-002 reaper 高效扫 stale streaming
   @@map("cs_message")
 }
 
