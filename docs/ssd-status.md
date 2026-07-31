@@ -10,12 +10,12 @@
 ## 当前快照
 
 - **总维度**:8
-- **已完整落地**:`3`(Dim 1, 7, plus 1 拆)
-- **部分落地 / 进行中**:`5`
+- **已完整落地**:`4`(Dim 1, 3, 7, plus 1 拆)
+- **部分落地 / 进行中**:`4`
 - **未开始**:`0`
-- **整体成熟度**:`~65%`(工具 + 文档 + 实战 + 关键问题已解决 + CI 守门)
+- **整体成熟度**:`~75%`(工具 + 文档 + 实战 + 关键问题已解决 + CI 守门 + commit 守门)
 
-> 最近更新:2026-07-31(§A CI workflow 落地:D-2/D-6 ✅,spec 工作流自动化守门开始)
+> 最近更新:2026-07-31(§B 落地:Dim 3 ✅,commit-msg hook 校验 [change-id] → spec)
 
 ---
 
@@ -38,27 +38,29 @@
   - ✅ **CI 已接**:`.github/workflows/ssd-spec-checks.yml` 跑 `pnpm test:spec` 在 PR 触发,失败 block merge
 - **判断**:从 0 到 1 + 守门都齐了,维度 2 闭环
 
-### 3. Spec ↔ code 双向追溯 — 🟡 部分完成
+### 3. Spec ↔ code 双向追溯 — ✅ 已完成(正向)
 
-- **完成时间**:
+- **完成时间**:2026-07-31
 - **当前状态**:
   - ✅ Commit 模板规定带 `[change-id]`(CLAUDE.md「Commit 模板」段)
   - ✅ 模板有 `@changeset <id>` `@adr NNNN` 注释规范
-  - ❌ **没有 commit-msg hook 校验 `[change-id]` 是否真对应 spec 文件**
-  - ❌ **没有 reverse trace:改了 code → 自动查哪个 spec 该改**
-- **下一步**:见 [行动项 §B](#b-commit-msg-hook-双向校验)
-- **判断**:约定是死的,工具没跑就靠人自觉
+  - ✅ **commit-msg hook 校验 `[change-id]`**:`scripts/check-spec-link.ts` 装到 `.husky/commit-msg`,commit 含 `[change-id]` 但 spec 文件不在 3 个可能位置时会 exit 1
+  - ❌ **没有 reverse trace**:改了 code → 自动查哪个 spec 该改(未做,见 P-4 长期方案)
+- **判断**:正向追溯(commit → spec)自动化了,reverse trace 靠 P-4 长期方案
 
-### 4. Spec 状态生命周期 — 🟡 部分完成
+### 4. Spec 状态生命周期 — 🟡 部分完成(提升)
+
+### 4. Spec 状态生命周期 — 🟡 部分完成(提升)
 
 - **完成时间**:
 - **当前状态**:
   - ✅ `@status` 注释规范(draft / accepted / implemented / deprecated)
   - ✅ `pnpm spec:status` 出状态面板
   - ✅ 30 天 stale draft 告警规则在脚本里
+  - 🟡 **`@status` 自动化**:@status 仍是注释,没人 grep 它(下一阶段靠 §C)
   - ❌ **没接 CI / 通知**(stale 不主动告警,只在跑命令时看)
 - **下一步**:见 [行动项 §C](#c-ci-跑-specstatus-输出到-pr-评论)
-- **判断**:报告有,推送无
+- **判断**:报告有,§C 接 CI 后会升级成 ✅
 
 ### 5. Spec review 流程 — 🟡 部分完成
 
@@ -136,7 +138,18 @@
   - 校验:`tests/_specs/<change-id>.spec.ts` 存在,或 commit 自带 `no-spec:` 标签
   - 装到 `.husky/commit-msg`
 - **预估**:半天
-- **完成日期**:
+- **完成日期**:2026-07-31
+- **实施细节**:
+  - `scripts/check-spec-link.ts` 解析 commit message 查 `[change-id]`
+  - 校验 3 个可能位置:`tests/_specs/`、`erp-admin-backend/test/*.e2e-spec.ts`、`erp-admin-backend/test/*.spec.ts`(适配 §D 的"后端走 jest" 结论)
+  - 通过规则:
+    - `[change-id]` 存在 → 校验 spec 存在
+    - `no-spec:` 标签 → 跳过(显式声明非 spec 改动)
+    - 都没 → 默认通过(常规 commit)
+  - 失败时输出 3 个候选路径 + 修法建议
+  - 装到 `.husky/commit-msg`(commitlint 之后跑)
+  - 加 `pnpm check-spec-link` script 到根 package.json
+  - 改 Dim 3 → ✅ 已完成(正向追溯自动化)
 
 ### §C. CI 跑 `spec:status` 输出到 PR 评论
 
@@ -179,9 +192,9 @@
 
 | 阶段    | 完成项                                                                  | 预计成熟度 | 所需时间 |
 | ------- | ----------------------------------------------------------------------- | ---------- | -------- |
-| 现在    | 工具 + 文档 + 1 实战 + 关键问题已解决 + 流程优化 + **CI 守门**           | 65%        | —        |
-| 下周    | §B(commit 校验)+ §E(reviewer checklist)                                  | 80%        | 半天     |
-| 第 2 周 | §C(spec:status 自动 PR 评论)                                            | 90%        | 半天     |
+| 现在    | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + CI 守门 + **commit 守门**     | 75%        | —        |
+| 下次    | §E(reviewer checklist 进 PR 模板)                                       | 85%        | 1h       |
+| 之后    | §C(spec:status 自动 PR 评论)                                            | 90%        | 半天     |
 | 长期    | 团队 onboarding / 多轮 spec 形成习惯 / 后端 jest e2e 扩 cover 全部 11 项 | 100%       | —        |
 
 ---
