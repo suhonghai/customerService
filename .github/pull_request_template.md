@@ -59,6 +59,19 @@
 
 <!-- 数据库迁移、配置变更、回滚步骤;如无填 N/A -->
 
+## Spec Quality Review(reviewer 必勾,2026-07-31 加)
+
+<!--
+如果本 PR 改了 tests/_specs/ 或 erp-admin-backend/test/ 下的 spec 文件,reviewer 必须逐条勾选。
+否则勾 N/A。
+参考:CLAUDE.md 「Spec Quality Rules」段
+-->
+
+- [ ] **外部可观察**:`Then` 都是 DB 状态 / HTTP response / metric / WS event / UI 文本,**不是** `expect(mockFn).toHaveBeenCalledWith(...)` 这种内部 mock 状态
+- [ ] **Given-When-Then 完整**:每个 Scenario 三段不省;happy path ≥ 1 + 边界 / 失败 ≥ 1
+- [ ] **Out of scope 显式**:可能改了 / 可能没改的边界列出来,reviewer 才能判断有没有越界
+- [ ] **N/A**:本 PR 不涉及 spec 修改(纯文档 / 重构 / 工具链等)
+
 ## Agent Mode
 
 <!-- 单选;若 PR 同时含 agent + 人工提交,以最后一次 push 的来源为准 -->
