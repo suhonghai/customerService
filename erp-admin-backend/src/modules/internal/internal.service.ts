@@ -691,6 +691,27 @@ export class InternalService {
   }
 
   // ============================================================
+  // cs-round-005(2026-07-31):按 sessionKey 软删(no-op 友好)
+  //   旧流程副作用:sessionKey 不存在 → create 空 session 再 soft-delete
+  //   新流程:先 findUnique by key,命中才软删;不存在 → 返 { deleted: false } 不报错
+  // ============================================================
+  async deleteSessionByKey(sessionKey: string) {
+    const row = await this.prisma.csSession.findUnique({
+      where: { sessionKey },
+      select: { id: true },
+    });
+    if (!row) {
+      this.logger.log(`deleteSessionByKey: sessionKey=${sessionKey} 未命中(no-op)`);
+      return { id: null, deleted: false };
+    }
+    await this.prisma.csSession.update({
+      where: { id: row.id },
+      data: { deletedAt: new Date() },
+    });
+    return { id: row.id, deleted: true };
+  }
+
+  // ============================================================
   // private
   // 修法(Day 9):用 MAX(ticketNo 后缀) + 1,而非 COUNT + 1
   //   原 count+1 方案在并发下两个事务都看到 count=34,都创 T-20260624035 → P2002
