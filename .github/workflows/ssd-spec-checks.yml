@@ -73,6 +73,25 @@ jobs:
       - name: Run spec drift audit
         run: pnpm spec:audit
 
+      - name: Run spec status report
+        id: spec-status
+        run: pnpm spec:status
+
+      - name: Post spec status as PR comment
+        if: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' }}
+        uses: marocchino/sticky-pull-request-comment@ce58e0b5d7c5b91d86e5d3c2a23add1ebbec2efe # v2.9.1
+        with:
+          header: ssd-spec-status
+          message: |
+            ## 📋 Spec Status Snapshot
+
+            ```
+            ${{ steps.spec-status.outputs.stdout }}
+            ```
+
+            ---
+            详细 spec 审计:点 [Checks] → "Vitest specs + drift audit" → [spec-audit-report] artifact
+
       - name: Upload spec report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
