@@ -19,6 +19,23 @@
 
 ---
 
+## 后端 spec 跑哪里?(重要)
+
+**根 `tests/_specs/` 的 vitest runner 不适合跑后端 NestJS service**(2026-07-31 §D 实战确认):
+
+- pnpm strict 隔离 + vitest 跨子包 import 链追不到
+- @prisma/client import-time 副作用 + 双版本冲突
+
+**正确做法**:
+
+- **后端 service / 跨包 NestJS 行为 spec** → 放 `erp-admin-backend/test/*.e2e-spec.ts`(jest + supertest + 真实 test DB),既有的
+- 完整 e2e spec 模板:看 `erp-admin-backend/test/integration-ai-cs-demo.e2e-spec.ts`
+- 根 `tests/_specs/` 留给:**纯前端 vitest-friendly spec**(无后端依赖,或纯逻辑函数)
+
+**case study: cs-round-001(messageCount)** — 原本在根 `tests/_specs/cs-round-001-message-count-semantic.spec.ts`(vitest,跑不通),已迁到 `erp-admin-backend/test/cs-round-001.e2e-spec.ts`(jest + supertest + 真实 DB)。
+
+---
+
 ## Spec 落点分层(3 个落点,各管各的)
 
 | 落点                                      | 跑法                             | 写什么                       |

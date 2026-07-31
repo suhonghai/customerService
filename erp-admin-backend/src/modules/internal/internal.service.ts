@@ -156,9 +156,9 @@ export class InternalService {
 
   // ============================================================
   // POST /api/internal/cs/sessions — upsert 会话
-  //   同 sessionKey 重复调 = messageCount 累加
-  //   注意:这里 increment 是"调用次数",真实消息数 = cs_message 实际行数
-  //   ai-cs-demo 可以借此感知"这是同一个会话的第几条"
+  //   cs-round-001(2026-07-31):messageCount 由 appendMessage 维护(单一真相),
+  //   upsertSession 只同步 userId / customerId / visitorName 元数据。
+  //   历史行为:这里 increment 是"调用次数"——已废弃,见 docs/ssd-status.md。
   // ============================================================
   async upsertSession(dto: UpsertSessionDto) {
     const visitorName = dto.visitorName ?? `访客-${dto.visitorId.slice(0, 8)}`;
@@ -167,8 +167,7 @@ export class InternalService {
     return this.prisma.csSession.upsert({
       where: { sessionKey: dto.sessionKey },
       update: {
-        // 已有会话:只 +1 计数 + 更新 userId/customerId(登录态变更时同步)
-        messageCount: { increment: 1 },
+        // 已有会话:同步元数据(messageCount 由 appendMessage 维护)
         ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
         ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
         ...(dto.title ? { visitorName: dto.title } : {}),
@@ -179,7 +178,8 @@ export class InternalService {
         visitorName,
         channel,
         aiModelCode: dto.aiModelCode ?? null,
-        messageCount: 1,
+        // 新会话:messageCount = 0,等第一条 appendMessage 才 +1
+        messageCount: 0,
         ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
         ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
         ...(dto.title ? { visitorName: dto.title } : {}),
@@ -212,6 +212,17 @@ export class InternalService {
         status: dto.status ?? 1,
       },
     });
+
+    // cs-round-001(2026-07-31):messageCount 单一真相来源 —— 落 1 条 +1
+    // 失败不阻断消息入库(已 commit),只 warn —— 后台 reconcile 兜底
+    this.prisma.csSession
+      .update({
+        where: { id: sessionId },
+        data: { messageCount: { increment: 1 } },
+      })
+      .catch((e) =>
+        this.logger.warn(`appendMessage +1 messageCount 失败(已落库): ${(e as Error).message}`),
+      );
 
     // emit user_message to session room so operators see new customer msg live
     if (dto.role === 'user') {
