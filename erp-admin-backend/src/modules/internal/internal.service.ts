@@ -199,6 +199,12 @@ export class InternalService {
   //   让 erp-admin 运营在工单详情页(如有)实时看到客户新问题。
   // ============================================================
   async appendMessage(sessionId: number, dto: AppendMessageDto) {
+    // cs-round-006(2026-07-31):role 白名单校验,防误传任意字符串
+    const ALLOWED_ROLES = new Set(['user', 'assistant', 'system', 'tool']);
+    if (!ALLOWED_ROLES.has(dto.role)) {
+      throw new BizException(BizCode.BAD_REQUEST, `role 不合法: ${dto.role}`);
+    }
+
     // 校验 session 存在(注意:软删中间件自动加 deletedAt: null)
     const session = await this.prisma.csSession.findUnique({
       where: { id: sessionId },
