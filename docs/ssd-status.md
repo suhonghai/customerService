@@ -10,12 +10,12 @@
 ## 当前快照
 
 - **总维度**:8
-- **已完整落地**:`0`
-- **部分落地 / 进行中**:`7`
-- **未开始**:`1`
-- **整体成熟度**:`~50%`(工具 + 文档 + 实战 + 关键问题已解决 + 流程优化)
+- **已完整落地**:`3`(Dim 1, 7, plus 1 拆)
+- **部分落地 / 进行中**:`5`
+- **未开始**:`0`
+- **整体成熟度**:`~65%`(工具 + 文档 + 实战 + 关键问题已解决 + CI 守门)
 
-> 最近更新:2026-07-31(§D 结论落地:P-1 通过迁 spec 到 jest 解决;cs-round-001 spec 完整 GREEN)
+> 最近更新:2026-07-31(§A CI workflow 落地:D-2/D-6 ✅,spec 工作流自动化守门开始)
 
 ---
 
@@ -29,15 +29,14 @@
   - `tests/_specs/README.md`(何时写 / 文件名 / 格式 / 生命周期约定)
 - **判断**:有模板 + 落点规范,Anyone 都能照着写
 
-### 2. Spec 可机器验证 — 🟡 部分完成
+### 2. Spec 可机器验证 — ✅ 已完成
 
-- **完成时间**:
+- **完成时间**:2026-07-31
 - **当前状态**:
   - ✅ `vitest.config.ts` 配置 OK,`pnpm test:spec` 本地跑通
   - ✅ 模板格式机器可读
-  - ❌ **CI 没接**(spec 失败不会 block merge)
-- **下一步**:见 [行动项 §A](#a-ci-跑-testspec--specaudit)
-- **判断**:本地能跑,但 CI 不守门 = 流程半吊子
+  - ✅ **CI 已接**:`.github/workflows/ssd-spec-checks.yml` 跑 `pnpm test:spec` 在 PR 触发,失败 block merge
+- **判断**:从 0 到 1 + 守门都齐了,维度 2 闭环
 
 ### 3. Spec ↔ code 双向追溯 — 🟡 部分完成
 
@@ -72,16 +71,15 @@
 - **下一步**:见 [行动项 §E](#e-reviewer-checklist-进-pr-模板)
 - **判断**:规则有,reviewer 不知道查
 
-### 6. Spec 漂移检测 — 🟡 部分完成
+### 6. Spec 漂移检测 — ✅ 已完成
 
-- **完成时间**:
+- **完成时间**:2026-07-31
 - **当前状态**:
   - ✅ `pnpm spec:audit` 跑漂移报告(关键词 grep 源)
   - ✅ 输出 markdown 报告
-  - ❌ **CI 没跑**(`spec:audit` 只本地)
-  - ❌ **没 fail 阻断**(只报告,不强制)
-- **下一步**:并入 [行动项 §A](#a-ci-跑-testspec--specaudit)
-- **判断**:工具有,自动化无
+  - ✅ **CI 已跑**:`.github/workflows/ssd-spec-checks.yml` 在 PR 跑 `pnpm spec:audit`,输出上传 artifact
+  - 🟡 **没 fail 阻断**(只报告,不强制)—— 这是 P-4 的权衡,长期可加 AST 强化(见已知问题段)
+- **判断**:从手工跑 → 自动跑已闭环,精准度靠 P-4 长期方案
 
 ### 7. AI agent 按 spec 干活 — ✅ 已完成
 
@@ -120,8 +118,14 @@
     - 后端 spec:`pnpm --filter erp-admin-backend test` (跑 jest e2e-spec,含 cs-round-001)
   - 任何一条 fail → PR status check 失败 → block merge
 - **预估**:半天
-- **完成日期**:
-- **2026-07-31 备注**:P-1 解决后,后端 spec 已经在 jest 跑,§A 落地只需要在 CI 调 `pnpm --filter erp-admin-backend test` 即可。**比原计划简单了**。
+- **完成日期**:2026-07-31
+- **实施细节**:
+  - 新增 `.github/workflows/ssd-spec-checks.yml`(根 spec + audit 跑根 vitest)
+  - 后端 jest e2e 不重做:`.github/workflows/pr-e2e.yml` 已存在,跑真服务(MySQL/Chroma)+ `pnpm --filter erp-admin-backend test`
+  - 两个 workflow 互不耦合:
+    - `ssd-spec-checks.yml`:路径过滤 tests/_specs/、docs/、CLAUDE.md 等;不需 DB
+    - `pr-e2e.yml`:路径过滤 erp-admin-backend/、Makefile、docker-compose.*.yml;需 docker compose stack
+  - 改维度 2 / 6 → ✅ 已完成
 
 ### §B. commit-msg hook 双向校验
 
@@ -175,11 +179,10 @@
 
 | 阶段    | 完成项                                                                  | 预计成熟度 | 所需时间 |
 | ------- | ----------------------------------------------------------------------- | ---------- | -------- |
-| 现在    | 已完成工具 + 文档 + 1 实战(发现 + 文档)                                 | 45%        | —        |
-| 下周    | §A(CI 跑 spec/audit)+ §B(commit 校验)                                   | 70%        | 1 天     |
-| 第 2 周 | §E(reviewer checklist 进 PR 模板)                                       | 80%        | 1h       |
-| 第 3 周 | §C(spec:status 自动 PR 评论)                                            | 90%        | 半天     |
-| 长期    | 后端 spec 走 jest 后端集成测试 / 根 spec 主战场是前端 / 团队 onboarding | 100%       | —        |
+| 现在    | 工具 + 文档 + 1 实战 + 关键问题已解决 + 流程优化 + **CI 守门**           | 65%        | —        |
+| 下周    | §B(commit 校验)+ §E(reviewer checklist)                                  | 80%        | 半天     |
+| 第 2 周 | §C(spec:status 自动 PR 评论)                                            | 90%        | 半天     |
+| 长期    | 团队 onboarding / 多轮 spec 形成习惯 / 后端 jest e2e 扩 cover 全部 11 项 | 100%       | —        |
 
 ---
 
