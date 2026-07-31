@@ -17,5 +17,12 @@
   "erp-admin-frontend/src/**/*.{css,json}": [
     "cd erp-admin-frontend && pnpm exec prettier --write"
   ],
+  "ai-cs-demo/src/**/*.{ts,tsx}": [
+    "cd ai-cs-demo && pnpm exec eslint --fix",
+    "cd ai-cs-demo && pnpm exec prettier --write"
+  ],
+  "ai-cs-demo/src/**/*.{css,json}": [
+    "cd ai-cs-demo && pnpm exec prettier --write"
+  ],
   "**/*.{md,json}": ["prettier --write"]
 }

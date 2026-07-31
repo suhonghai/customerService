@@ -10,7 +10,9 @@ LOG_DIR := $(ROOT_DIR)/logs
 BACKEND_DIR := $(ROOT_DIR)/erp-admin-backend
 FRONTEND_DIR := $(ROOT_DIR)/erp-admin-frontend
 AI_CS_DIR := $(ROOT_DIR)/ai-cs-demo
-DEPLOY_DIR := $(ROOT_DIR)/deploy/scripts
+
+# 2026 C3 整改:DEPLOY_DIR 已删除(deploy/ 整目录被替代)
+# 生产部署走 docker compose,见下面的 deploy target
 
 # ----- 日志文件 -----
 BACKEND_LOG := $(LOG_DIR)/dev-server.log
@@ -383,15 +385,25 @@ dev-status: ## 查看 3 服务 RUNNING/STOPPED + docker compose ps
 	@$(COMPOSE) ps
 
 # ===== 构建 / 部署 / 健康检查 =====
+# 2026 workflow C3 整改:deploy/*.sh 老脚本全删
+# - 本地构建:各自 `pnpm --filter <pkg> build`
+# - 生产部署:docker compose 编排(make ENV=production up)
+# - 健康检查:见 `$(COMPOSE) ps` + 子包 /health endpoints
 
-build: ## 跑 deploy/scripts/build-all.sh(本地构建 backend + frontend + ai-cs-demo)
-	bash $(DEPLOY_DIR)/build-all.sh
+build: ## 本地构建所有子包(NestJS / Vite / Next.js 各自的 build)
+	pnpm --filter erp-admin-backend build
+	pnpm --filter erp-admin-frontend build
+	pnpm --filter ai-cs-demo build
 
-deploy: ## 跑 deploy/scripts/deploy.sh(生产部署,需 DEPLOY_HOST 环境变量)
-	bash $(DEPLOY_DIR)/deploy.sh
+deploy: ## 生产部署 = make ENV=production up(docker compose 一键起)
+	@echo "⚠️  别再 rm + cp 旧式 deploy.sh;直接 make ENV=production up"
+	@echo "   见 CLAUDE.md「子包『在哪看什么』」+ 5× docker-compose.*.yml"
+	@exit 1
 
-health: ## 跑 deploy/scripts/health-check.sh(健康检查 + 报警)
-	bash $(DEPLOY_DIR)/health-check.sh
+health: ## 校验 docker compose 容器 + 关键 /health endpoints
+	$(COMPOSE) ps
+	@curl -sf -o /dev/null -w "backend /api/health/ready → %{http_code}\n" http://localhost:3001/api/health/ready || true
+	@curl -sf -o /dev/null -w "ai-cs   ready       → %{http_code}\n" http://localhost:9529/ || true
 
 ttl-check: guard ## 校验 prod JWT TTL(跑起来后调 login 拿 access token,decode exp 验证)
 	@echo "=== 校验 prod JWT TTL(access 必须 ≈ 3600s, refresh 必须 ≈ 604800s)==="

@@ -1,15 +1,6 @@
 #!/usr/bin/env sh
-# Multi-project pre-commit hook.
-# Detects which project has staged files and runs its lint-staged.
+# Pre-commit hook:跑 lint-staged(根配置 + 子包分层,见 .lintstagedrc.json)
+# 2026 C3 整改:旧路径(W11-erp-admin / W9-10-customer-service)迁移后已失效,统一走根。
 set -e
 
-ROOT=$(git rev-parse --show-toplevel)
-staged=$(git diff --cached --name-only)
-
-if echo "$staged" | grep -q '^W11-erp-admin/'; then
-  (cd "$ROOT/W11-erp-admin" && pnpm lint-staged)
-fi
-
-if echo "$staged" | grep -q '^W9-10-customer-service/ai-cs-demo/'; then
-  (cd "$ROOT/W9-10-customer-service/ai-cs-demo" && pnpm lint-staged)
-fi
+pnpm lint-staged

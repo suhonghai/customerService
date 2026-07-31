@@ -15,10 +15,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json,md}\"",
     "mcp:dev": "tsx scripts/mcp-servers/customer-service.ts",
-    "mcp:seed": "tsx scripts/seed-faq.ts",
-    "prepare": "husky",
-    "lint-staged": "lint-staged",
-    "commitlint": "commitlint --edit"
+    "mcp:seed": "tsx scripts/seed-faq.ts"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^1.0.46",

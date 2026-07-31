@@ -1,13 +1,12 @@
 #!/usr/bin/env sh
 # Multi-project commit-msg hook.
-# Detects which project the staged files belong to and runs commitlint there.
+# Detects which subpackage staged files belong to and runs commitlint from
+# the subdirectory that owns the commitlint config / eslint config.
+#
+# 2026 C3 整改:
+#   - 旧路径(W9-10-customer-service/ai-cs-demo、W11-erp-admin)是迁移前的目录,
+#     迁过来后一致走根 commitlint;保留单进程调用,不按子包分发,简化稳定。
+#   - 根 .husky/commit-msg 调根 package.json 里的 commitlint(已经在 root devDeps)
 set -e
 
-ROOT=$(git rev-parse --show-toplevel)
-staged=$(git diff --cached --name-only)
-
-if echo "$staged" | grep -q '^W9-10-customer-service/ai-cs-demo/'; then
-  (cd "$ROOT/W9-10-customer-service/ai-cs-demo" && pnpm commitlint --edit "$1")
-else
-  (cd "$ROOT/W11-erp-admin" && pnpm commitlint --edit "$1")
-fi
+pnpm commitlint --edit "$1"
