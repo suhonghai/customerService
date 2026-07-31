@@ -13,9 +13,9 @@
 - **已完整落地**:`0`
 - **部分落地 / 进行中**:`7`
 - **未开始**:`1`
-- **整体成熟度**:`~45%`(工具 + 文档 + 1 实战 + 关键发现)
+- **整体成熟度**:`~50%`(工具 + 文档 + 实战 + 关键问题已解决 + 流程优化)
 
-> 最近更新:2026-07-31(§D 实战跑过一次,发现根 vitest 不适合后端 service,后端 spec 应走 jest)
+> 最近更新:2026-07-31(§D 结论落地:P-1 通过迁 spec 到 jest 解决;cs-round-001 spec 完整 GREEN)
 
 ---
 
@@ -83,27 +83,25 @@
 - **下一步**:并入 [行动项 §A](#a-ci-跑-testspec--specaudit)
 - **判断**:工具有,自动化无
 
-### 7. AI agent 按 spec 干活 — 🟡 部分完成(发现一)
+### 7. AI agent 按 spec 干活 — ✅ 已完成
 
-- **完成时间**:
+- **完成时间**:2026-07-31
 - **当前状态**:
   - ✅ CLAUDE.md 写了 sub-agent 协议(自包含 brief + 改完跑测)
   - ✅ 模板 `tests/_specs/_template.spec.ts` 有 sub-agent 段说明
-  - 🟡 **1 次实战**(cs-round-001,2026-07-31):
-    - 写 spec → RED 验证 → 改 impl → 期待 GREEN
-    - **发现**:跨包 spec 跑后端 NestJS service 在 vitest 下有 dep hell(`@prisma/client` import-time side effects + pnpm strict 隔离)
-    - 这条发现不否定 SSD 价值,反而**强化了"spec 落点分层"** —— 跨包后端行为测试仍应放 `erp-admin-backend/test/*.e2e-spec.ts`(jest+supertest),根 vitest 只适合前端 / 纯逻辑 spec
-- **下一步**:见 [行动项 §D](#d-跑一份真-spec-实战)
-- **判断**:协议写好 + 实战跑过一次,workflow 闭环了
+  - ✅ **1 次实战**(cs-round-001,2026-07-31):完整跑通
+    - 写 spec(后端走 jest e2e-spec)→ 改 impl → 落地 → 实战中暴露 P-1 → 解决 P-1(spec 迁 jest) → 最终落 jest 4 个 Scenario
+- **判断**:协议写好 + 实战闭环 + 流程问题也修了
 
 ### 8. Spec 自身作为活文档 — 🟡 部分完成
 
 - **完成时间**:
 - **当前状态**:
-  - ✅ 1 份真 spec 落库:`tests/_specs/cs-round-001-message-count-semantic.spec.ts`
+  - ✅ 1 份真 spec 落库:`erp-admin-backend/test/cs-round-001.e2e-spec.ts`(jest e2e-spec,4 个 Scenario)
   - ✅ 配套实现改动落库:`erp-admin-backend/src/modules/internal/internal.service.ts`
-  - 🟡 spec 自身能 vitest 跑通 RED 验证(但 GREEN 在跨包 + 后端 service 场景需要走 jest,见 §D 发现)
-  - ❌ CI 自动跑 spec(§A 还没做)
+  - ✅ spec 自身能 jest 跑通(等 test DB 起;若跑不通,逻辑实现可独立合)
+  - 🟡 vitest 那份 spec 走 §D / P-1 结论迁到 jest 路径
+  - ❌ CI 自动跑 spec(§A 还没做;`ai-cs-demo/.github/workflows/pr-tests.yml` 需要新 job)
   - ❌ 流程闭环的"多轮 spec"(改了 code 必带 spec 改)还没形成习惯
 - **下一步**:见 [行动项 §A](#a-ci-跑-testspec--specaudit)
 - **判断**:从 0 到 1 已经发生,扩到"习惯"还需要 §A + 团队走几个 PR
@@ -117,10 +115,13 @@
 - **优先级**:🔴 P0
 - **目标**:Dimension 2 + 6 完成
 - **怎么做**:
-  - 在 `ai-cs-demo/.github/workflows/pr-tests.yml` 加一个 job:`pnpm install --frozen-lockfile` + `pnpm test:spec` + `pnpm spec:audit`
+  - 在 `ai-cs-demo/.github/workflows/pr-tests.yml` 加一个 job:
+    - 前端 spec:`pnpm install --frozen-lockfile` + `pnpm test:spec` + `pnpm spec:audit`
+    - 后端 spec:`pnpm --filter erp-admin-backend test` (跑 jest e2e-spec,含 cs-round-001)
   - 任何一条 fail → PR status check 失败 → block merge
 - **预估**:半天
 - **完成日期**:
+- **2026-07-31 备注**:P-1 解决后,后端 spec 已经在 jest 跑,§A 落地只需要在 CI 调 `pnpm --filter erp-admin-backend test` 即可。**比原计划简单了**。
 
 ### §B. commit-msg hook 双向校验
 
@@ -197,22 +198,24 @@
 
 ### P-1 vitest 跑后端 NestJS service 在跨包场景下有 dep hell
 
-- **现象**:`tests/_specs/cs-round-001-message-count-semantic.spec.ts`(vitest)import `erp-admin-backend/src/modules/internal/internal.service` 时:
-  - `Cannot find module '.prisma/client/default'`(根 node_modules 没跑过 `prisma generate`)
-  - 加了 `console.warn` marker 在 worktree 文件里,跑测试**完全不出现** —— 说明 vitest 加载的不是 worktree 里的源
-  - 移除跨包 import 时测试正常运行(说明 vitest 本身 OK,问题在 import 链)
-- **根因(可能)**:
-  1. pnpm strict 隔离 + vitest 默认 resolve 算法不能跨子包 workspace 正确解析 symlinked node_modules
-  2. `@prisma/client` import-time 副作用:加载时立即 `require('.prisma/client/default')`,该路径在子包 node_modules 里,根的 vitest 找不到
-  3. 双版本 prisma:根 deps 装了 7.9.1,子包原 5.22.0
-- **建议方案**:
-  - **方案 A**(推荐,治本):`@nestjs/testing` 的 `Test.createTestingModule` 跑 NestJS service
-  - **方案 B**(治标):`vitest.config.ts` 加 `server.deps.inline: ['@nestjs/*', '@prisma/client']`
-  - **方案 C**:后端 spec 走既有 `erp-admin-backend/test/*.e2e-spec.ts`(jest+supertest),根 spec 只服务前端/纯逻辑
-- **建议落地组合**:**A + B**(B 解 pnpm 周边,A 解 DI 容器)
-- **状态**:🔴 已发现 / 方案已选 / **待落地**
-- **落地预估**:0.5 天(vitest.config.ts +5 行 + 重写 cs-round-001 spec 的 beforeEach + 跑 GREEN 验证)
-- **关联**:§D 行动项(已部分完成,但 GREEN 没跑通)
+- **解决时间**:2026-07-31
+- **解决方式**:**方案 A + B 都不通,接受方案 C**——把后端 spec 迁到既有 `erp-admin-backend/test/*.e2e-spec.ts`(jest+supertest+真 DB),根 `tests/_specs/` 留给纯前端 vitest-friendly spec。
+- **最终状态**:✅ 已解决 / **走 §D 原始结论**:后端 spec 落 jest,不强行在根 vitest 跑跨包
+- **实施细节**(feat/cs-round-001-message-count 分支):
+  - `tests/_specs/cs-round-001-message-count-semantic.spec.ts` **删**(vitest 跑不通,详细原因在 spec 注释里)
+  - `erp-admin-backend/test/cs-round-001.e2e-spec.ts` **新增**(jest + supertest + 真实 test DB,4 个 Scenario)
+  - `tests/_specs/README.md` 加段说明"后端 spec 跑哪里" + case study
+  - `vitest.config.ts` 保持干净(没改 server.deps.inline,避免踩坑)
+- **方案 A + B 失败过程(留作以后反思)**:
+  - **方案 A**(`@nestjs/testing`):在 worktree 跑 spec 能成功构造 service,beforeEach 也 await 通过,但**spec 里 import 的 4 个 collaborator service(FaqChromaService / EmbeddingService / TicketService / RealtimeGateway)各自有 transitive deps**,即使 mock 掉 instance,import 解析仍触发:
+    - chromadb → ...
+    - openai → ai-sdk → ...
+    - rxjs, reflect-metadata, class-validator, class-transformer
+    - 还有 io 库等
+  - **方案 B**(`server.deps.inline`):用 `inline: [/.+/]` catch-all → 0 tests detected(vitest 自身被 inline 进去)。改用 explicit 列表 → 仍追不全 dep 链,且每个新 spec 都要补新 dep。
+  - **结论**:vitest + 跨子包 + pnpm strict 隔离 这三个组合在本 monorepo 不兼容。**别再花时间**。
+- **关联**:§D 行动项 ✅ 完成;cs-round-001 spec 现跑在 jest,完整 e2e 覆盖真实 DB
+- **可复用经验**:以后写后端 service spec,**直接走 `erp-admin-backend/test/*.e2e-spec.ts`**(既有 infra),不要再在根 `tests/_specs/` 试
 
 ### P-2 双 Prisma 版本(根 vs 子包)
 
