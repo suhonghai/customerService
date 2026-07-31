@@ -1,12 +1,10 @@
 #!/usr/bin/env sh
-# Multi-project commit-msg hook.
-# Detects which subpackage staged files belong to and runs commitlint from
-# the subdirectory that owns the commitlint config / eslint config.
-#
-# 2026 C3 整改:
-#   - 旧路径(W9-10-customer-service/ai-cs-demo、W11-erp-admin)是迁移前的目录,
-#     迁过来后一致走根 commitlint;保留单进程调用,不按子包分发,简化稳定。
-#   - 根 .husky/commit-msg 调根 package.json 里的 commitlint(已经在 root devDeps)
+# commit-msg hook:commitlint + check-spec-link 双向校验
+# 2026-07-31 §B 落地:commit 含 [change-id] 必能找到 spec
 set -e
 
+# 1) commitlint(常规 conventional commits 校验)
 pnpm commitlint --edit "$1"
+
+# 2) check-spec-link(我们的 spec ↔ commit 双向校验)
+pnpm check-spec-link "$1"

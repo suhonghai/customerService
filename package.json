@@ -10,7 +10,8 @@
     "test:spec": "vitest run",
     "test:spec:watch": "vitest",
     "spec:audit": "tsx scripts/spec-audit.ts",
-    "spec:status": "tsx scripts/spec-status.ts"
+    "spec:status": "tsx scripts/spec-status.ts",
+    "check-spec-link": "tsx scripts/check-spec-link.ts"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.1",
