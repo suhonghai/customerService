@@ -191,6 +191,66 @@
 
 ---
 
+## 已知问题跟踪(2026-07-31 实战发现)
+
+> §D 跑 messageCount spec 时暴露的"工程级"问题,跟 SSD 维度正交。**每一个有建议方案但未落地** = 后续真做时直接对应此处。每解决一条,把"状态"列改 ✅ + 完成日期。
+
+### P-1 vitest 跑后端 NestJS service 在跨包场景下有 dep hell
+
+- **现象**:`tests/_specs/cs-round-001-message-count-semantic.spec.ts`(vitest)import `erp-admin-backend/src/modules/internal/internal.service` 时:
+  - `Cannot find module '.prisma/client/default'`(根 node_modules 没跑过 `prisma generate`)
+  - 加了 `console.warn` marker 在 worktree 文件里,跑测试**完全不出现** —— 说明 vitest 加载的不是 worktree 里的源
+  - 移除跨包 import 时测试正常运行(说明 vitest 本身 OK,问题在 import 链)
+- **根因(可能)**:
+  1. pnpm strict 隔离 + vitest 默认 resolve 算法不能跨子包 workspace 正确解析 symlinked node_modules
+  2. `@prisma/client` import-time 副作用:加载时立即 `require('.prisma/client/default')`,该路径在子包 node_modules 里,根的 vitest 找不到
+  3. 双版本 prisma:根 deps 装了 7.9.1,子包原 5.22.0
+- **建议方案**:
+  - **方案 A**(推荐,治本):`@nestjs/testing` 的 `Test.createTestingModule` 跑 NestJS service
+  - **方案 B**(治标):`vitest.config.ts` 加 `server.deps.inline: ['@nestjs/*', '@prisma/client']`
+  - **方案 C**:后端 spec 走既有 `erp-admin-backend/test/*.e2e-spec.ts`(jest+supertest),根 spec 只服务前端/纯逻辑
+- **建议落地组合**:**A + B**(B 解 pnpm 周边,A 解 DI 容器)
+- **状态**:🔴 已发现 / 方案已选 / **待落地**
+- **落地预估**:0.5 天(vitest.config.ts +5 行 + 重写 cs-round-001 spec 的 beforeEach + 跑 GREEN 验证)
+- **关联**:§D 行动项(已部分完成,但 GREEN 没跑通)
+
+### P-2 双 Prisma 版本(根 vs 子包)
+
+- **现象**:根 `@prisma/client` = 7.9.1,`erp-admin-backend` = 5.22.0
+- **根因**:§D 调试时在根跑了 `pnpm add -D @nestjs/common @prisma/client`,prisma 被升到 7.9.1;子包原 pinned 5.22.0
+- **建议方案**:
+  - 短期:vitest config 显式声明 `resolve.alias` 把 `@prisma/client` 指向子包版本
+  - 长期:不要在根装 @prisma/client,改用子包版本;根 vitest 跑后端 spec 时只 inline 子包路径
+- **状态**:🟡 已记录 / 根 deps 已回滚 / **运行时未冲突**
+- **落地预估**:0(已回滚,无 active issue)
+
+### P-3 §A 落地时的工作量(预计)
+
+- **现状**:CI 没接 spec 跑(§A),意味着即便改了 spec 实现,合并前不验证
+- **触发条件**:P-1 解决之后,§A 才能跑通(CI 上跑 vitest 必须先把 dep hell 解了)
+- **状态**:依赖 P-1;P-1 解决后可 0.5 天落地
+
+### P-4 spec:audit 漂移检测是关键词 grep,不是真 AST trace
+
+- **现状**:`scripts/spec-audit.ts` 从 `it('...')` 标题抽 camelCase / snake_case 单词 ≥ 4 字符,grep 源;可能 false positive 也可能 false negative
+- **根因**:不想加 ts-parser 重依赖
+- **影响**:对"spec 提到某函数但实现没"和"代码改了 spec 没提"两种 drift 都能 cover 部分
+- **建议方案**:
+  - 短期:接受 grep 的不精确,作为粗粒度信号
+  - 长期:用 ts-morph 或 @typescript-eslint 的 AST API 做精确 trace(成本高)
+- **状态**:🟢 接受(短期方案,记录备查)
+- **落地预估**:暂不落地
+
+### P-5 erp-admin-backend 没自己的 .husky(commits bypass commitlint 风险)
+
+- **现状**:根 + ai-cs-demo 有 .husky,erp-admin-backend **没有**(commit 走根 hook 兜底,但若有人在 backend 子目录跑 `git commit` 可能 bypass)
+- **根因**:迁移历史不一致
+- **建议方案**:删 `erp-admin-backend/.husky`(如果存在);保持只有根 .husky,根 hook 已能 cover 全 monorepo(因为 git hooks 在 repo root 生效,任何子目录 commit 都触发)
+- **状态**:🟡 已记录 / 实际上未观察到 bypass(因为根 .husky 已覆盖)
+- **落地预估**:0(若已覆盖,无需动)
+
+---
+
 ## 当前 owner
 
 - AI agent(实现 + 工具)
