@@ -62,16 +62,16 @@
 - **下一步**:见 [行动项 §C](#c-ci-跑-specstatus-输出到-pr-评论)
 - **判断**:报告有,§C 接 CI 后会升级成 ✅
 
-### 5. Spec review 流程 — 🟡 部分完成
+### 5. Spec review 流程 — 🟡 部分完成(提升)
 
 - **完成时间**:
 - **当前状态**:
   - ✅ CLAUDE.md「Spec Quality Rules」3 条
   - ✅ PR 模板有 spec 钩子
-  - ❌ **reviewer checklist 没进 PR 模板**(现 PR 模板只问 "spec 已落定",没问 3 条具体规则)
-  - ❌ **没有强制:PR 不带 spec 不能 merge**
-- **下一步**:见 [行动项 §E](#e-reviewer-checklist-进-pr-模板)
-- **判断**:规则有,reviewer 不知道查
+  - ✅ **PR 模板加 Spec Quality Review 段**:3 条 reviewer 必勾规则 + N/A 兜底
+  - ❌ **没有强制:PR 不带 spec 不能 merge**(靠 reviewer 自觉 + commit-msg hook §B 守住)
+- **下一步**:见 [行动项 §C](#c-ci-跑-specstatus-输出到-pr-评论)
+- **判断**:模板 + 规则齐了,reviewer 流程跑起来后再看是不是要加 GitHub required check
 
 ### 6. Spec 漂移检测 — ✅ 已完成
 
@@ -179,12 +179,13 @@
 
 - **优先级**:🟡 P1
 - **目标**:Dimension 5 完成
-- **怎么做**:
-  - `.github/PULL_REQUEST_TEMPLATE.md` 加 "Spec Quality Review" 段
-  - 3 个 checkbox 对应 CLAUDE.md 3 条 rules
-  - reviewer 不勾全不能 approve(用 GitHub required check)
 - **预估**:1 小时
-- **完成日期**:
+- **完成日期**:2026-07-31
+- **实施细节**:
+  - `.github/pull_request_template.md` 加 "Spec Quality Review" 段
+  - 3 条 reviewer 必勾规则(对应 CLAUDE.md 3 条 Spec Quality Rules)+ N/A 兜底
+  - 改 Dim 5 → 🟡 提升(从"模板有但没规则"到"模板+规则都齐")
+  - **没做的**:GitHub required check 强制 reviewer 不勾不能 approve(等 review 流程跑顺再决定加)
 
 ---
 
