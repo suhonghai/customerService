@@ -147,15 +147,15 @@
 
 - **优先级**:🔴 P0(**最高 ROI**)
 - **目标**:Dimension 7 + 8 完成
-- **怎么做**:
-  - 选 P0-1 messageCount 那条(信息齐、跨包、有 spec 价值)
-  - worktree 分支
-  - 写 `tests/_specs/cs-round-001-message-count.spec.ts`
-  - sub-agent 拿 spec 改实现
-  - `pnpm test:spec` 跑通
-  - 复盘:模板缺什么 / 流程哪里卡
 - **预估**:1-2 天
-- **完成日期**:
+- **完成日期**:2026-07-31(部分完成)
+- **完成情况**:
+  - ✅ spec 写完:`tests/_specs/cs-round-001-message-count-semantic.spec.ts`(vitest RED 验证)
+  - ✅ 实现改完:`erp-admin-backend/src/modules/internal/internal.service.ts`(`upsertSession` 不再 +1,`appendMessage` 接管)
+  - 🟡 GREEN 验证卡在 vitest + NestJS service + pnpm strict 隔离的 dep 链路问题
+  - 📌 **结论**:根 `tests/_specs/` 用 vitest 不适合跨包后端 service 测试。**后端 service / 跨包行为测试应放 `erp-admin-backend/test/*.e2e-spec.ts`**(jest + supertest,既有的)。根 spec 主战场是前端 vitest-friendly 的纯逻辑 + DB 行为。
+  - 后续:把 `cs-round-001` spec 内容**分拆**:vitest-friendly 部分留根 spec;依赖 NestJS DI 的部分迁到 `erp-admin-backend/test/cs-round-001.e2e-spec.ts`
+  - 实现改动 `internal.service.ts` 可以独立合并(已经过 review 验证),不依赖 spec 跑通
 
 ### §E. reviewer checklist 进 PR 模板
 
@@ -172,13 +172,13 @@
 
 ## 升级路径(从 30% → 100%)
 
-| 阶段    | 完成项                          | 预计成熟度 | 所需时间 |
-| ------- | ------------------------------- | ---------- | -------- |
-| 现在    | 已完成工具 + 文档               | 30%        | —        |
-| 下周    | §D(实战 spec)                   | 50%        | 1-2 天   |
-| 第 2 周 | §A + §B(CI 守门)                | 75%        | 1 天     |
-| 第 3 周 | §C + §E(review 流程)            | 95%        | 半天     |
-| 长期    | spec 反哺文档 / 团队 onboarding | 100%       | —        |
+| 阶段    | 完成项                                                                  | 预计成熟度 | 所需时间 |
+| ------- | ----------------------------------------------------------------------- | ---------- | -------- |
+| 现在    | 已完成工具 + 文档 + 1 实战(发现 + 文档)                                 | 45%        | —        |
+| 下周    | §A(CI 跑 spec/audit)+ §B(commit 校验)                                   | 70%        | 1 天     |
+| 第 2 周 | §E(reviewer checklist 进 PR 模板)                                       | 80%        | 1h       |
+| 第 3 周 | §C(spec:status 自动 PR 评论)                                            | 90%        | 半天     |
+| 长期    | 后端 spec 走 jest 后端集成测试 / 根 spec 主战场是前端 / 团队 onboarding | 100%       | —        |
 
 ---
 
