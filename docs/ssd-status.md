@@ -10,12 +10,12 @@
 ## 当前快照
 
 - **总维度**:8
-- **已完整落地**:`4`(Dim 1, 3, 7, plus 1 拆)
-- **部分落地 / 进行中**:`4`
+- **已完整落地**:`5`(Dim 1, 3, 4, 7, plus 1 拆)
+- **部分落地 / 进行中**:`3`
 - **未开始**:`0`
-- **整体成熟度**:`~75%`(工具 + 文档 + 实战 + 关键问题已解决 + CI 守门 + commit 守门)
+- **整体成熟度**:`~85%`(工具 + 文档 + 实战 + 关键问题 + CI 守门 + commit 守门 + status 推送 + review 模板)
 
-> 最近更新:2026-07-31(§B 落地:Dim 3 ✅,commit-msg hook 校验 [change-id] → spec)
+> 最近更新:2026-07-31(§C 落地:Dim 4 ✅,spec:status 推到 PR comment)
 
 ---
 
@@ -50,17 +50,15 @@
 
 ### 4. Spec 状态生命周期 — 🟡 部分完成(提升)
 
-### 4. Spec 状态生命周期 — 🟡 部分完成(提升)
+### 4. Spec 状态生命周期 — ✅ 已完成
 
-- **完成时间**:
+- **完成时间**:2026-07-31
 - **当前状态**:
   - ✅ `@status` 注释规范(draft / accepted / implemented / deprecated)
   - ✅ `pnpm spec:status` 出状态面板
   - ✅ 30 天 stale draft 告警规则在脚本里
-  - 🟡 **`@status` 自动化**:@status 仍是注释,没人 grep 它(下一阶段靠 §C)
-  - ❌ **没接 CI / 通知**(stale 不主动告警,只在跑命令时看)
-- **下一步**:见 [行动项 §C](#c-ci-跑-specstatus-输出到-pr-评论)
-- **判断**:报告有,§C 接 CI 后会升级成 ✅
+  - ✅ **CI 接了**:`.github/workflows/ssd-spec-checks.yml` 的 spec:status step 跑 + 用 sticky comment 贴到 PR
+- **判断**:报告 + 推送都齐了,维度 4 闭环
 
 ### 5. Spec review 流程 — 🟡 部分完成(提升)
 
@@ -155,11 +153,16 @@
 
 - **优先级**:🟡 P1
 - **目标**:Dimension 4 完成
-- **怎么做**:
-  - GitHub Action:跑 `pnpm spec:status` → 用 github-script 评论到 PR
-  - 列表包含 30 天 stale draft、unspecified spec
 - **预估**:半天
-- **完成日期**:
+- **完成日期**:2026-07-31
+- **实施细节**:
+  - 在 `.github/workflows/ssd-spec-checks.yml` 加 step:
+    - `Run spec status report`(id: spec-status,跑 pnpm spec:status)
+    - `Post spec status as PR comment` 用 `marocchino/sticky-pull-request-comment@v2.9.1`
+  - sticky = true → 每次 PR push 覆盖同一 comment,不刷屏
+  - header = ssd-spec-status → 唯一标识
+  - comment 内容:状态表格 + stale draft 警告 + 无 status 孤儿
+  - 改 Dim 4 → ✅ 已完成
 
 ### §D. 跑一份真 spec 实战
 
@@ -193,9 +196,7 @@
 
 | 阶段    | 完成项                                                                  | 预计成熟度 | 所需时间 |
 | ------- | ----------------------------------------------------------------------- | ---------- | -------- |
-| 现在    | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + CI 守门 + **commit 守门**     | 75%        | —        |
-| 下次    | §E(reviewer checklist 进 PR 模板)                                       | 85%        | 1h       |
-| 之后    | §C(spec:status 自动 PR 评论)                                            | 90%        | 半天     |
+| 现在    | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + CI 守门 + commit 守门 + status 推送 + review 模板 | 85%        | —        |
 | 长期    | 团队 onboarding / 多轮 spec 形成习惯 / 后端 jest e2e 扩 cover 全部 11 项 | 100%       | —        |
 
 ---
