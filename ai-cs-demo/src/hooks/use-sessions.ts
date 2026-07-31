@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { nanoid } from 'nanoid';
 import type { UIMessage } from 'ai';
 import { getVisitorId } from '@/lib/visitor';
+import { sanitizeTitle } from '@/lib/pii-sanitize';
 
 /**
  * 一个客服会话。
@@ -114,7 +115,7 @@ function deriveTitle(messages: UIMessage[], currentTitle: string): string {
       ?.filter((p: TextPart) => p.type === 'text')
       .map((p: TextPart) => p.text)
       .join('') || '';
-  const trimmed = text.trim().replace(/\s+/g, ' ');
+  const trimmed = sanitizeTitle(text);
   if (!trimmed) return currentTitle;
   return trimmed.length > 30 ? trimmed.slice(0, 30) + '...' : trimmed;
 }
