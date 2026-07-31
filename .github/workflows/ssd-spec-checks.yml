@@ -77,6 +77,31 @@ jobs:
         id: spec-status
         run: pnpm spec:status
 
+      - name: Check Spec Quality Review (PR body)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@60a0d00439cdf576d1234dde67d780deaa9c2ddc # v7.0.1
+        with:
+          script: |
+            const body = context.payload.pull_request?.body ?? '';
+            // 找 Spec Quality Review 段
+            const section = body.match(/## Spec Quality Review[\s\S]*?(?=\n## |\s*$)/);
+            if (!section) {
+              core.setFailed('❌ PR body 缺 "Spec Quality Review" 段(参考 .github/pull_request_template.md)');
+              return;
+            }
+            // 检查 3 条 reviewer 规则 + N/A,至少有 1 个 `- [x]`
+            const checked = (section[0].match(/^- \[x\] /gm) ?? []).length;
+            if (checked === 0) {
+              core.setFailed(
+                '❌ Spec Quality Review 没勾任何一项。\n' +
+                'reviewer 必须勾:\n' +
+                '  - 外部可观察 + Given-When-Then 完整 + Out of scope 显式(若本 PR 改 spec)\n' +
+                '  - 或 N/A(若本 PR 不改 spec)',
+              );
+              return;
+            }
+            core.info(`✓ Spec Quality Review 已勾 ${checked} 项`);
+
       - name: Post spec status as PR comment
         if: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' }}
         uses: marocchino/sticky-pull-request-comment@ce58e0b5d7c5b91d86e5d3c2a23add1ebbec2efe # v2.9.1
