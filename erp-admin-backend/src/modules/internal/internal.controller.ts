@@ -239,4 +239,15 @@ export class InternalController {
   async reapOrphans() {
     return this.internalService.reapStaleStreaming();
   }
+
+  /**
+   * cs-round-005:按 sessionKey 软删(no-op 友好)
+   *   旧流程副作用:sessionKey 不存在 → create 空 session 再 delete,留 deletedAt 痕迹
+   *   新流程:先 findUnique by key,命中才软删;不存在 → 返 { deleted: false } 不报错
+   */
+  @Delete('sessions/by-key/:sessionKey')
+  @ApiOperation({ summary: '按 sessionKey 软删(不存在 → no-op)' })
+  async deleteSessionByKey(@Param('sessionKey') sessionKey: string) {
+    return this.internalService.deleteSessionByKey(sessionKey);
+  }
 }
