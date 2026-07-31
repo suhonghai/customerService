@@ -10,12 +10,12 @@
 ## 当前快照
 
 - **总维度**:8
-- **已完整落地**:`5`(Dim 1, 3, 4, 7, plus 1 拆)
-- **部分落地 / 进行中**:`3`
+- **已完整落地**:`6`(Dim 1, 3, 4, 5, 7, plus 1 拆)
+- **部分落地 / 进行中**:`2`
 - **未开始**:`0`
-- **整体成熟度**:`~85%`(工具 + 文档 + 实战 + 关键问题 + CI 守门 + commit 守门 + status 推送 + review 模板)
+- **整体成熟度**:`~90%`(工具 + 文档 + 实战 + 关键问题 + CI 守门 + commit 守门 + status 推送 + review 全栈)
 
-> 最近更新:2026-07-31(§C 落地:Dim 4 ✅,spec:status 推到 PR comment)
+> 最近更新:2026-07-31(Dim 5 完整落地:Action 强制 review 段勾选)
 
 ---
 
@@ -60,16 +60,15 @@
   - ✅ **CI 接了**:`.github/workflows/ssd-spec-checks.yml` 的 spec:status step 跑 + 用 sticky comment 贴到 PR
 - **判断**:报告 + 推送都齐了,维度 4 闭环
 
-### 5. Spec review 流程 — 🟡 部分完成(提升)
+### 5. Spec review 流程 — ✅ 已完成
 
-- **完成时间**:
+- **完成时间**:2026-07-31
 - **当前状态**:
   - ✅ CLAUDE.md「Spec Quality Rules」3 条
   - ✅ PR 模板有 spec 钩子
   - ✅ **PR 模板加 Spec Quality Review 段**:3 条 reviewer 必勾规则 + N/A 兜底
-  - ❌ **没有强制:PR 不带 spec 不能 merge**(靠 reviewer 自觉 + commit-msg hook §B 守住)
-- **下一步**:见 [行动项 §C](#c-ci-跑-specstatus-输出到-pr-评论)
-- **判断**:模板 + 规则齐了,reviewer 流程跑起来后再看是不是要加 GitHub required check
+  - ✅ **GitHub Action 强制校验**:`ssd-spec-checks.yml` 的 'Check Spec Quality Review' step 用 actions/github-script 读 PR body,3 条规则 + N/A 至少 1 个 `- [x]`,否则 fail
+- **判断**:模板 + 规则 + Action 守门三层齐了,维度 5 闭环
 
 ### 6. Spec 漂移检测 — ✅ 已完成
 
@@ -196,7 +195,7 @@
 
 | 阶段    | 完成项                                                                  | 预计成熟度 | 所需时间 |
 | ------- | ----------------------------------------------------------------------- | ---------- | -------- |
-| 现在    | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + CI 守门 + commit 守门 + status 推送 + review 模板 | 85%        | —        |
+| 现在    | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + CI 守门 + commit 守门 + status 推送 + **review 全栈** | 90%        | —        |
 | 长期    | 团队 onboarding / 多轮 spec 形成习惯 / 后端 jest e2e 扩 cover 全部 11 项 | 100%       | —        |
 
 ---
