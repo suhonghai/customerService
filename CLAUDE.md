@@ -231,6 +231,43 @@ Then <外部可观察结果>
 - `pnpm spec:status` 会自动识别(`crossPkg: ✓`)
 - 后端 jest 跑一遍(看 erp-admin-backend/test/)+ 前端 vitest 跑一遍,spec 自身只放跨包契约级别的断言
 
+### Spec 落点分层(3 个落点,各管各的)
+
+| 落点                                      | 写什么                                       | 跑法                             | 例子                                           |
+| ----------------------------------------- | -------------------------------------------- | -------------------------------- | ---------------------------------------------- |
+| `tests/_specs/<id>.spec.ts`(根)           | 跨包 / 端到端 / 用户可见行为                 | `pnpm test:spec`                 | 新建会话、handoff ack、PII 脱敏、WS handshake  |
+| `<子包>/test/<feature>.e2e-spec.ts`       | 子包内集成(NestJS supertest / vitest 跨模块) | 各自 `pnpm --filter <子包> test` | 客服 MCP 协议工具体、登录 RBAC、FAQ 检索       |
+| `<子包>/src/<file>.spec.ts` / `.test.tsx` | 单元 / co-located                            | 各自 vitest / jest               | `deriveTitle` 截 30 字、`internalMessage` 解析 |
+
+**判断方法**:
+
+| 触发问题                        | 落点              |
+| ------------------------------- | ----------------- |
+| 改了某函数的不变量,用户感知不到 | 单元(co-located)  |
+| 改了某模块 API,调用者感知       | 集成(子包内)      |
+| 改了用户可见流程 / 跨包副作用   | **跨包 spec(根)** |
+
+**核心原则**:**spec 不依赖任何特定子包的实现细节** → 根;否则 co-located。
+
+**反模式**:
+
+- ❌ 单元级 spec 写根(跑 vitest 慢、跟实现脱节)
+- ❌ 跨包行为 spec 写子包(只能看到子包视角,缺全局)
+- ❌ 一个 spec 文件混三层(单元 + 集成 + 跨包)— 拆
+
+举例(之前 11 项整改对应落点):
+
+| 整改                      | 落点                                    |
+| ------------------------- | --------------------------------------- |
+| P0-1 messageCount 语义    | 根(backend + frontend 都感知)           |
+| P0-2 placeholder reaper   | 根(后端 + WS + 前端 reconnect)          |
+| P1-1 handoff ack 落库     | 根(前端 + 后端 + 运营侧)                |
+| P1-2 PII 脱敏             | 根(前端 sanitize + 后端落库 + 运营展示) |
+| P2-1 role 白名单          | `erp-admin-backend/test/`(纯后端)       |
+| P2-2 cs_message.updatedAt | 根(跨包但偏 schema)                     |
+| P2-4 WS auth              | 根(后端 + 前端 handshake)               |
+| P1-3 deleteByKey          | 根(前端 + 后端)                         |
+
 ### 命令速查
 
 | 命令                                        | 干啥的                                      |
