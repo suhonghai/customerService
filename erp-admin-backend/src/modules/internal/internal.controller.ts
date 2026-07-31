@@ -225,4 +225,18 @@ export class InternalController {
   async deleteSession(@Param('id') id: string) {
     return this.internalService.deleteSession(+id);
   }
+
+  /**
+   * cs-round-002:触发 reaper 收敛 stale streaming placeholder
+   *   业务:assistant message 创建时 status=2 streaming;若流被中断(onFinish/onAbort
+   *   未触发),这条 row 永远停 status=2。前端 refetch 当 interrupted 渲染 → 触发
+   *   auto-retry,白白消耗 LLM 配额。修法:reaper 兜底,扫陈旧 status=2 改成 4 (error)。
+   *   触发:被动在每次 upsertSession 后 fire-and-forget,或主动调这个 endpoint。
+   *   阈值:5 分钟(远大于 maxDuration=60s,不会误杀正在生成的流)。
+   */
+  @Post('reap-orphans')
+  @ApiOperation({ summary: '收敛 stale streaming placeholder(status=2 → status=4)' })
+  async reapOrphans() {
+    return this.internalService.reapStaleStreaming();
+  }
 }
