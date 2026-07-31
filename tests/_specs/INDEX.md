@@ -10,8 +10,9 @@
 | spec id | 业务场景 | 落点 | status | 关联代码 | owner | last-updated |
 |---|---|---|---|---|---|---|
 | [cs-round-001](./cs-round-001-message-count-semantic.spec.ts) | 客服会话 messageCount 字段语义对齐(÷2 bug 修复) | `erp-admin-backend/test/cs-round-001.e2e-spec.ts`(jest,已迁) | implemented | `internal.service.ts` `upsertSession` / `appendMessage` | AI + you | 2026-07-31 |
+| cs-round-002 | assistant placeholder 孤儿收敛(reaper) | `erp-admin-backend/test/cs-round-002.e2e-spec.ts`(jest) | accepted | `internal.service.ts` `reapStaleStreaming` + `upsertSession` 触发 | AI | 2026-07-31 |
 
-> 注:`cs-round-001` 的 spec 已根据 §D / P-1 结论从根 `tests/_specs/` 迁到 `erp-admin-backend/test/`(jest 路径)。根目录放的是 redirect 引用。
+> 注:`cs-round-001` / `cs-round-002` 的 spec 已根据 §D / P-1 结论从根 `tests/_specs/` 迁到 `erp-admin-backend/test/`(jest 路径)。根目录放的是 redirect 引用。
 
 ---
 
