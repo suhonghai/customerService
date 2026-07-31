@@ -100,6 +100,31 @@ pnpm --filter erp-admin-backend lint
 - `ai-cs-demo/scripts/` 留:`seed-faq.ts`(知识库入库)、`test-cs-*.{sh,mjs}`、`test-export-session.ts`(导出功能单测)、`capture-readme-screenshots.mjs`(README 截图)、`mcp-servers/`(客服 MCP server)
 - `ai-cs-demo/docs/screenshots/` 不是过期截图,是 export feature 的入参 fixture,不要清
 
+## Living Spec(spec 是活文档,2026-07-31 §8 落地)
+
+**核心理念**:**spec 不是文档,是会跑的代码**。它随业务演进,跟 commit 强绑定,跟 PR review 强绑定。
+
+| 想看 | 路径 |
+|---|---|
+| **所有 spec 一览**(spec ↔ 业务 ↔ owner) | [`tests/_specs/INDEX.md`](./tests/_specs/INDEX.md) |
+| 动态状态面板(spec 数量 / stale / @status 漏标) | `pnpm spec:status` |
+| 漂移检测(spec ↔ code 漂移)| `pnpm spec:audit` |
+| CI 守门(vitest + audit + spec:status 评论)| `.github/workflows/ssd-spec-checks.yml` |
+| 后端 spec 怎么走 jest | `tests/_specs/README.md` "后端 spec 跑哪里"段 |
+| 整个 SSD 工作流状态 | [`docs/ssd-status.md`](./docs/ssd-status.md) |
+
+**索引的维护规则**:
+- **新增 spec** → 在 `INDEX.md` 加一行,设 `@status draft`
+- **改 spec** → 改对应行 + 更新 last-updated
+- **废弃 spec** → `@status deprecated` + INDEX 标 `superseded_by` 引用新 spec
+- **季度 review** → owner 过表,把 90+ 天未动的 draft 推动 / 改需求 / 删
+
+**自动化层**(每条都跑):
+- commit-msg hook:commit 含 `[change-id]` 必能找到 spec
+- PR 模板:Spec Quality Review 段 + Action 校验勾选
+- CI workflow:test:spec + spec:audit + spec:status → PR 评论
+- ssd-status.md 自身也是活文档,8 维度状态随时更新
+
 ---
 
 ## AI agent 协同(简短版)

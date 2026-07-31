@@ -10,12 +10,12 @@
 ## 当前快照
 
 - **总维度**:8
-- **已完整落地**:`6`(Dim 1, 3, 4, 5, 7, plus 1 拆)
-- **部分落地 / 进行中**:`2`
+- **已完整落地**:`7`(Dim 1, 3, 4, 5, 7, 8, plus 1 拆)
+- **部分落地 / 进行中**:`1`
 - **未开始**:`0`
-- **整体成熟度**:`~90%`(工具 + 文档 + 实战 + 关键问题 + CI 守门 + commit 守门 + status 推送 + review 全栈)
+- **整体成熟度**:`~95%`(工具 + 文档 + 实战 + 关键问题 + 全部 8 维度闭环 + 活文档)
 
-> 最近更新:2026-07-31(Dim 5 完整落地:Action 强制 review 段勾选)
+> 最近更新:2026-07-31(Dim 8 完整落地:INDEX 索引 + Liveness 报告 + CLAUDE Living Spec 段)
 
 ---
 
@@ -90,18 +90,18 @@
     - 写 spec(后端走 jest e2e-spec)→ 改 impl → 落地 → 实战中暴露 P-1 → 解决 P-1(spec 迁 jest) → 最终落 jest 4 个 Scenario
 - **判断**:协议写好 + 实战闭环 + 流程问题也修了
 
-### 8. Spec 自身作为活文档 — 🟡 部分完成
+### 8. Spec 自身作为活文档 — ✅ 已完成
 
-- **完成时间**:
+- **完成时间**:2026-07-31
 - **当前状态**:
-  - ✅ 1 份真 spec 落库:`erp-admin-backend/test/cs-round-001.e2e-spec.ts`(jest e2e-spec,4 个 Scenario)
+  - ✅ 1 份 SSD spec 落库:`erp-admin-backend/test/cs-round-001.e2e-spec.ts`(jest,4 个 Scenario,@status implemented)
   - ✅ 配套实现改动落库:`erp-admin-backend/src/modules/internal/internal.service.ts`
-  - ✅ spec 自身能 jest 跑通(等 test DB 起;若跑不通,逻辑实现可独立合)
-  - 🟡 vitest 那份 spec 走 §D / P-1 结论迁到 jest 路径
-  - ❌ CI 自动跑 spec(§A 还没做;`ai-cs-demo/.github/workflows/pr-tests.yml` 需要新 job)
-  - ❌ 流程闭环的"多轮 spec"(改了 code 必带 spec 改)还没形成习惯
-- **下一步**:见 [行动项 §A](#a-ci-跑-testspec--specaudit)
-- **判断**:从 0 到 1 已经发生,扩到"习惯"还需要 §A + 团队走几个 PR
+  - ✅ spec 自身能 jest 跑通(等 test DB 起;pr-e2e.yml 在 CI 调)
+  - ✅ **`tests/_specs/INDEX.md` 索引**:spec ↔ 业务 ↔ owner 关联,新增 spec 必加行
+  - ✅ **`spec-status` 升级**:扫根 + 后端两个位置,Liveness Summary + 90 天僵尸警告
+  - ✅ **CI 接 jest**:`.github/workflows/pr-e2e.yml` 跑后端 e2e;`.github/workflows/ssd-spec-checks.yml` 跑根 vitest + spec/audit
+  - ✅ **CLAUDE.md 加 Living Spec 段**:索引链接 + 维护规则 + 自动化层
+- **判断**:**spec 是活文档**:索引可查、老龄化有告警、CI 守门、commit 强绑定,8 维度闭环
 
 ---
 
@@ -195,7 +195,7 @@
 
 | 阶段    | 完成项                                                                  | 预计成熟度 | 所需时间 |
 | ------- | ----------------------------------------------------------------------- | ---------- | -------- |
-| 现在    | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + CI 守门 + commit 守门 + status 推送 + **review 全栈** | 90%        | —        |
+| 现在    | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + 8 维度全闭环                   | 95%        | —        |
 | 长期    | 团队 onboarding / 多轮 spec 形成习惯 / 后端 jest e2e 扩 cover 全部 11 项 | 100%       | —        |
 
 ---

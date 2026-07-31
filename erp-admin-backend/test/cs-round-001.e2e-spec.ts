@@ -1,8 +1,10 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { AppModule } from '../src/app.module';
-import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter';
+/**
+ * @status implemented
+ * @change-id cs-round-001
+ *
+ * cs-round-001:cs_session.messageCount 语义对齐(e2e 验证)
+ */
+
 import { PrismaExceptionFilter } from '../src/common/filters/prisma-exception.filter';
 import { TransformInterceptor } from '../src/common/interceptors/transform.interceptor';
 import { PrismaService } from '../src/prisma/prisma.service';

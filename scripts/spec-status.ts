@@ -17,7 +17,11 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, basename, extname } from 'node:path';
 
-const SPEC_DIR = 'tests/_specs';
+// 2026-07-31 §D 结论:跨包 spec 落地有两个位置
+// - 根 tests/_specs/  →  纯前端 vitest-friendly spec
+// - erp-admin-backend/test/  →  后端 jest e2e-spec / unit spec
+// spec-status 同时扫两边,让团队一个面板看到所有 spec
+const SPEC_DIRS = ['tests/_specs', 'erp-admin-backend/test'];
 
 interface Spec {
   id: string;
@@ -51,10 +55,12 @@ function parseSpec(filepath: string): Spec {
 }
 
 function main() {
-  const specs = readdirSync(SPEC_DIR)
-    .filter((f) => f.endsWith('.spec.ts') && !f.startsWith('_'))
-    .map((f) => parseSpec(join(SPEC_DIR, f)))
-    .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  const specs = SPEC_DIRS.flatMap((dir) =>
+    readdirSync(dir)
+      // 两种 spec 文件后缀:*.spec.ts(根 vitest)+ *.e2e-spec.ts(后端 jest)
+      .filter((f) => (f.endsWith('.spec.ts') || f.endsWith('.e2e-spec.ts')) && !f.startsWith('_'))
+      .map((f) => parseSpec(join(dir, f))),
+  ).sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
 
   if (specs.length === 0) {
     console.log('# Spec Status\n\n_暂无 spec。_');
@@ -101,10 +107,39 @@ function main() {
     console.log('');
   }
 
+  // 警告:90 天以上未动的任何 spec(可能是僵尸)
+  const zombies = specs.filter(
+    (s) => Date.now() - s.mtime.getTime() > 90 * 86_400_000,
+  );
+  if (zombies.length > 0) {
+    console.log('## 🧟 僵尸 spec(> 90 天未动,review 是否已过时)\n');
+    for (const s of zombies) {
+      const age = Math.floor((Date.now() - s.mtime.getTime()) / 86_400_000);
+      console.log(`- ${s.id}(${s.status ?? '—'})  ${age}d old`);
+    }
+    console.log('');
+  }
+
+  // Liveness 段(为下游工具/团队 review 准备)
+  console.log('## 🌱 Liveness Summary\n');
+  const byStatus: Record<string, number> = {};
+  let implemented = 0;
+  for (const s of specs) {
+    const k = s.status ?? 'unspecified';
+    byStatus[k] = (byStatus[k] ?? 0) + 1;
+    if (k === 'implemented') implemented += 1;
+  }
+  for (const [k, n] of Object.entries(byStatus)) {
+    console.log(`- ${k}: ${n}`);
+  }
+  console.log(`- 实现了但 spec 还没改 @status 标记:` +
+    `${specs.filter((s) => s.status === 'draft' || !s.status).length}/` +
+    `${specs.length}`);
+
   // 警告:没有 @status 的孤儿
   const orphans = specs.filter((s) => !s.status);
   if (orphans.length > 0) {
-    console.log('## ⚠️ 没标 @status 的 spec(请补充)\n');
+    console.log('\n## ⚠️ 没标 @status 的 spec(请补充)\n');
     for (const s of orphans) {
       console.log(`- ${s.id}`);
     }

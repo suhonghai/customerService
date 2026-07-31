@@ -36,6 +36,31 @@
 
 ---
 
+## Living Spec 生命周期(spec 是活文档)
+
+```
+draft → accepted → implemented → deprecated
+```
+
+工具支撑(全自动):
+
+| 阶段 | 工具 |
+|---|---|
+| 写 spec(在 INDEX.md 加一行,设 @status draft) | 人工 |
+| review 质量(3 条规则) | PR 模板 + Action 强制 |
+| commit 含 [change-id] | commit-msg hook 校验 spec 存在 |
+| CI 跑 spec | vitest(根) + jest(后端 pr-e2e) |
+| 漂移检测(spec ↔ code 漂移) | spec:audit workflow 跑 |
+| 状态报告(粘 PR 评论) | spec:status + sticky comment |
+| 归档 / superseded | 把 @status 改 deprecated + INDEX.md 标 superseded_by |
+
+**关键文档**:
+- [`INDEX.md`](./INDEX.md):所有 spec 一览(spec ↔ 业务 ↔ owner 关联)
+- `pnpm spec:status`:动态面板(本目录 + 各子包 test/ 下所有 spec)
+- [`/Users/suesea/.claude/plans/`](/Users/suesea/.claude/plans/):plan 文件仓外,不污染仓
+
+---
+
 ## Spec 落点分层(3 个落点,各管各的)
 
 | 落点                                      | 跑法                             | 写什么                       |
