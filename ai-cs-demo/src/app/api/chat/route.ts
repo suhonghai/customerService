@@ -145,18 +145,32 @@ export async function POST(req: Request) {
             console.log(
               `[chat] in-human-handoff sessionId=${sessionId} ticketNo=${openTicket.ticketNo} → AI 闭嘴`,
             );
-            // user 消息已在上面 append 过(role=user, status=1,backend emit user_message WS),
-            // 这里只合成一条 assistant ack 给前端 useChat 渲染。
-            // 注意:不再 append assistant 消息到 backend — 真人回复会走 operator_reply(走 cs_message bridge),
-            // 避免重复,也避免 status=2 空行。
+            // cs-round-003:handoff ack 落库,刷新页面也能看到
+            // 用真实 messageId(从 appendMessage 返回),前端 useChat 收到的 messageId 就对得上
+            let ackMessageId = `ack-${Date.now()}`;
+            try {
+              const ackRow = await erp.appendMessage(sessionId, {
+                role: 'assistant',
+                content: ackText,
+                status: 1, // 直接落库正常状态(不是 2 streaming)
+                metadata: {
+                  source: 'system-ack',
+                  reason: 'human-handoff',
+                  ticketNo: (openTicket as unknown as { ticketNo: string }).ticketNo,
+                },
+              });
+              ackMessageId = `srv-${ackRow.id}`;
+            } catch (e) {
+              // best-effort:appendMessage 失败不应阻断 ack 合成给前端
+              console.warn('[chat] handoff ack 落库失败,fallback 内存 messageId:', (e as Error).message);
+            }
             const ackStream = createUIMessageStream({
               originalMessages: messages,
               execute: async ({ writer }) => {
-                const id = `ack-${Date.now()}`;
-                writer.write({ type: 'start', messageId: id });
-                writer.write({ type: 'text-start', id });
-                writer.write({ type: 'text-delta', id, delta: ackText });
-                writer.write({ type: 'text-end', id });
+                writer.write({ type: 'start', messageId: ackMessageId });
+                writer.write({ type: 'text-start', messageId: ackMessageId });
+                writer.write({ type: 'text-delta', messageId: ackMessageId, delta: ackText });
+                writer.write({ type: 'text-end', messageId: ackMessageId });
                 writer.write({ type: 'finish' });
               },
             });
