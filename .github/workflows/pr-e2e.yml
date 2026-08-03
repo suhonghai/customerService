@@ -85,6 +85,26 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare sub-package .env.test
+        working-directory: .
+        run: |
+          # docker-compose.{yml,test.yml} 通过 env_file 引用 3 个子包的 .env.test,
+          # 这些文件同样被 .gitignore 排除。每个子包必须有 .env.test.example 入仓,
+          # 这里 copy 出 .env.test。如果模板缺失就 FAIL —— 不能静默放过,否则
+          # compose 起来后才报 "no such file",错误信息淹没在 build 输出里。
+          for sub in erp-admin-backend erp-admin-frontend ai-cs-demo; do
+            if [ -f "$sub/.env.test" ]; then
+              echo "[ok] $sub/.env.test already present"
+              continue
+            fi
+            if [ ! -f "$sub/.env.test.example" ]; then
+              echo "[ERROR] $sub/.env.test 缺失且 .env.test.example 不存在 —— 无法准备 test 子包环境变量" >&2
+              exit 1
+            fi
+            cp "$sub/.env.test.example" "$sub/.env.test"
+            echo "[ok] $sub/.env.test 由 $sub/.env.test.example 生成"
+          done
+
       - name: Validate compose interpolation
         working-directory: .
         run: |
