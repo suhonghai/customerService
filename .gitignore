@@ -50,3 +50,11 @@ logs/dev-*.log
 
 # ====== Husky 9 internal shim (auto-generated, do not commit) ======
 .husky/_/
+
+# ====== Claude Code 工作区(见 CLAUDE.md 「Worktree 隔离」段) ======
+# CLAUDE.md 约定大改动走 `git worktree add .claude/worktrees/<branch>`。
+# 这些 worktree 各自带一份 node_modules,2026-08-03 实测累计 2.0G —— 纯本地临时产物,永不入仓。
+.claude/worktrees/
+# 个人本地覆盖不入仓;.claude/settings.json 留空档:将来若要共享团队级配置,可以入仓。
+.claude/settings.local.json
+
