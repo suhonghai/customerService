@@ -155,8 +155,11 @@ class ChromaStore implements VectorStore {
         id,
         text: docs[i] || '',
         embedding: embs[i] || [],
-        source: metas[i]?.source || 'unknown',
-        index: metas[i]?.index ?? i,
+        // Chroma metadata value 类型很宽(string | number | string[] | SparseVector | ...),
+        // SearchResult.source 要求 string,这里统一走 String() 兜底
+        source: String(metas[i]?.source ?? 'unknown'),
+        // Chroma metadata value 同 source 是宽类型;SearchResult.index 要求 number
+        index: Number(metas[i]?.index ?? i),
       },
       // L2 距离 → 相似度(简单反归一化:1 / (1 + d))
       score: 1 / (1 + (distances[i] ?? 0)),

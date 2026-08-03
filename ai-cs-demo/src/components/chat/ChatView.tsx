@@ -3,6 +3,7 @@
 import type { UIMessage } from 'ai';
 import { useEffect, useRef } from 'react';
 import { ChatBubble } from './ChatBubble';
+import type { ChatBubbleProps } from './ChatBubble';
 import { WelcomeMessage } from './WelcomeMessage';
 import { MessageInput } from './MessageInput';
 import { DecisionTrace } from '@/components/DecisionTrace';
@@ -155,7 +156,7 @@ export function ChatView(props: ChatViewProps) {
                   key={m.id}
                   role={m.role}
                   text={text}
-                  reasoning={reasoning}
+                  reasoning={reasoning ? String(reasoning) : ''}
                   timeLabel={formatTime(new Date())}
                   operatorBadge={
                     metadata?.source === 'operator'
@@ -164,8 +165,25 @@ export function ChatView(props: ChatViewProps) {
                   }
                   aborted={aborted}
                   status={status}
-                  usage={usage}
-                  retrieval={retrieval}
+                  usage={
+                    usage
+                      ? {
+                          totalTokens:
+                            (usage.totalTokens ?? 0) ||
+                            (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+                          cost: 0,
+                        }
+                      : undefined
+                  }
+                  retrieval={
+                    retrieval
+                      ? ({
+                          query: (retrieval as { query?: string }).query ?? '',
+                          topK: (retrieval as { topK?: number }).topK ?? 0,
+                          results: (retrieval as { results?: unknown[] }).results ?? [],
+                        } as ChatBubbleProps['retrieval'])
+                      : undefined
+                  }
                   showDebugTrace={debugTrace}
                   showDebugRetrieval={debugRetrieval}
                   decisionTrace={

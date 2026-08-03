@@ -34,7 +34,7 @@ export async function parseFile(buffer: Buffer, filename: string): Promise<{
         const items = await extractTextItems(data)
         totalPages = items.totalPages
         text = items.items
-          .map(page => page.map(it => it.text || '').join(' '))
+          .map(page => page.map(it => String((it as { text?: unknown }).text ?? '')).join(' '))
           .join('\n\n')
         console.log(`[parser] fallback extracted ${text.length} chars`)
       } catch (err) {

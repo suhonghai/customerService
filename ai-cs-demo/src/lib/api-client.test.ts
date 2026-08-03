@@ -36,6 +36,16 @@ function mockFetchResponse(body: unknown, init?: { status?: number }) {
   } as Response;
 }
 
+// vitest 2.x 的 vi.fn() 不会自动把 `async () => ...` 推导成 fetch 签名,
+// 导致 mock.calls 元组类型为 `[][]`,后续 [0]/[1] 访问触发 TS2493/TS2352。
+// 这里给 impl 加显式参数 + 返回类型,让 TS 推出与 typeof fetch 一致的元组。
+type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>;
+function stubFetch(impl: () => Promise<Response>): FetchMock {
+  return vi.fn<typeof fetch>(
+    async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => impl(),
+  );
+}
+
 describe('api-client — getOrderByOrderNo', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -75,7 +85,7 @@ describe('api-client — getOrderByOrderNo', () => {
         receivedAt: null,
       },
     };
-    const fetchMock = vi.fn(async () => mockFetchResponse(orderResp));
+    const fetchMock = stubFetch(async () => mockFetchResponse(orderResp));
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await getOrderByOrderNo('001');
@@ -91,7 +101,7 @@ describe('api-client — getOrderByOrderNo', () => {
   });
 
   it('订单不存在(404):返 null,不抛错', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = stubFetch(async () =>
       mockFetchResponse({ code: 1404, message: 'NOT_FOUND', data: null }, { status: 404 }),
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -100,7 +110,7 @@ describe('api-client — getOrderByOrderNo', () => {
   });
 
   it('订单不存在(业务 code 1404 + status 200):返 null', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = stubFetch(async () =>
       mockFetchResponse({ code: 1404, message: 'NOT_FOUND', data: null }),
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -109,7 +119,7 @@ describe('api-client — getOrderByOrderNo', () => {
   });
 
   it('业务错误(code !== 0 且非 1404):抛 BackendApiError', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = stubFetch(async () =>
       mockFetchResponse({ code: 1400, message: '参数错误', data: null }, { status: 400 }),
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -123,7 +133,7 @@ describe('api-client — listActiveOrders', () => {
   });
 
   it('成功:返订单数组', async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
+    const fetchMock = stubFetch(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
     vi.stubGlobal('fetch', fetchMock);
     const result = await listActiveOrders({ sessionKey: 'sk-42', status: 'all' });
     expect(result).toEqual([]);
@@ -135,7 +145,7 @@ describe('api-client — listActiveOrders', () => {
   });
 
   it('sessionKey 必传:URL 必带', async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
+    const fetchMock = stubFetch(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
     vi.stubGlobal('fetch', fetchMock);
     await listActiveOrders({ sessionKey: 'sk-alice' });
     const url = fetchMock.mock.calls[0][0] as string;
@@ -143,7 +153,7 @@ describe('api-client — listActiveOrders', () => {
   });
 
   it('status=undefined:不带 status query', async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
+    const fetchMock = stubFetch(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
     vi.stubGlobal('fetch', fetchMock);
     await listActiveOrders({ sessionKey: 'sk-1' });
     const url = fetchMock.mock.calls[0][0] as string;
@@ -162,7 +172,7 @@ describe('api-client — createTicket', () => {
   });
 
   it('成功:返 backend 工单号', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = stubFetch(async () =>
       mockFetchResponse({
         code: 0,
         message: 'ok',
@@ -197,7 +207,7 @@ describe('api-client — createTicket', () => {
   });
 
   it('业务错误:抛 BackendApiError(code 保留)', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = stubFetch(async () =>
       mockFetchResponse({ code: 1500, message: 'title 过长', data: null }, { status: 400 }),
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -214,7 +224,7 @@ describe('api-client — createEscalation', () => {
   });
 
   it('成功:返 escalation 对象', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = stubFetch(async () =>
       mockFetchResponse({
         code: 0,
         message: 'ok',
@@ -253,7 +263,7 @@ describe('api-client — tenantId 注入', () => {
   });
 
   it('tenantId=null:不加 X-Tenant-Id', async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse({ code: 0, message: 'ok', data: null }));
+    const fetchMock = stubFetch(async () => mockFetchResponse({ code: 0, message: 'ok', data: null }));
     vi.stubGlobal('fetch', fetchMock);
     await listActiveOrders({ sessionKey: 'sk-1', tenantId: null });
     const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
@@ -261,7 +271,7 @@ describe('api-client — tenantId 注入', () => {
   });
 
   it('tenantId=2:加 X-Tenant-Id=2', async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
+    const fetchMock = stubFetch(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
     vi.stubGlobal('fetch', fetchMock);
     await listActiveOrders({ sessionKey: 'sk-1', tenantId: 2 });
     const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
@@ -269,7 +279,7 @@ describe('api-client — tenantId 注入', () => {
   });
 
   it('tenantId=空字符串:不加 X-Tenant-Id(V1 单租户兜底)', async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
+    const fetchMock = stubFetch(async () => mockFetchResponse({ code: 0, message: 'ok', data: [] }));
     vi.stubGlobal('fetch', fetchMock);
     await listActiveOrders({ sessionKey: 'sk-1', tenantId: '' });
     const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;

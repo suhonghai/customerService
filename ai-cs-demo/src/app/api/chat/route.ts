@@ -168,9 +168,10 @@ export async function POST(req: Request) {
               originalMessages: messages,
               execute: async ({ writer }) => {
                 writer.write({ type: 'start', messageId: ackMessageId });
-                writer.write({ type: 'text-start', messageId: ackMessageId });
-                writer.write({ type: 'text-delta', messageId: ackMessageId, delta: ackText });
-                writer.write({ type: 'text-end', messageId: ackMessageId });
+                // AI SDK 6.x:text-start/text-delta/text-end 的标识字段是 `id`,不是 `messageId`
+                writer.write({ type: 'text-start', id: ackMessageId });
+                writer.write({ type: 'text-delta', id: ackMessageId, delta: ackText });
+                writer.write({ type: 'text-end', id: ackMessageId });
                 writer.write({ type: 'finish' });
               },
             });
@@ -430,7 +431,12 @@ ${contextBlock}`;
 
     const result = streamText({
       model: qwenChat,
-      messages: await convertToModelMessages(sanitizedMessages),
+      // AI SDK 6.x convertToModelMessages 入参是 Omit<UIMessage, "id">[]。
+      // sanitizedMessages 是从 UIMessage[] map 出来的,需要手动 narrow 类型。
+      // 用类型断言而不是逐字段剥离,避免 spread 后类型推断退化。
+      messages: await convertToModelMessages(
+        sanitizedMessages as unknown as Parameters<typeof convertToModelMessages>[0],
+      ),
       system,
       tools: wrappedTools, // MCP 4 工具,escalate_to_human 已 wrap(自动注入 sessionKey)
       stopWhen: stepCountIs(5), // 最多 5 步

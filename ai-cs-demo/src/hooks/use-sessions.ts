@@ -69,9 +69,13 @@ function persistSessions(sessions: Session[]) {
   }
 }
 
-function persistActiveId(id: string) {
+function persistActiveId(id: string | null) {
   try {
-    window.localStorage.setItem(ACTIVE_KEY, id);
+    if (id === null) {
+      window.localStorage.removeItem(ACTIVE_KEY);
+    } else {
+      window.localStorage.setItem(ACTIVE_KEY, id);
+    }
   } catch {
     // 静默
   }
