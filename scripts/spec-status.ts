@@ -16,6 +16,7 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, basename, extname } from 'node:path';
+import { extractScenarios } from './_spec-scenarios';
 
 // 2026-07-31 §D 结论:跨包 spec 落地有两个位置
 // - 根 tests/_specs/  →  纯前端 vitest-friendly spec
@@ -41,7 +42,7 @@ function parseSpec(filepath: string): Spec {
   const statusMatch = /@status\s+(\w[\w-]*)/.exec(content);
   const status = statusMatch?.[1] ?? null;
 
-  const scenarioCount = (content.match(/it\(\s*['"`]/g) ?? []).length;
+  const scenarioCount = extractScenarios(content).length;
   const hasChangelog = /@changeset\s+\S+/.test(content);
 
   // 跨包粗判:import 路径里出现 ≥2 个子包名前缀
