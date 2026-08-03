@@ -39,7 +39,10 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: read
+  # sticky comment 需要写权限;原为 read,导致「Post spec status as PR comment」
+  # 报 "Resource not accessible by integration"。
+  # 这个 workflow 此前因两个失效的 action SHA pin 从未真正跑起来,所以该问题一直没暴露。
+  pull-requests: write
 
 jobs:
   spec-and-audit:
@@ -79,7 +82,7 @@ jobs:
 
       - name: Check Spec Quality Review (PR body)
         if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/github-script@60a0d00439cdf576d1234dde67d780deaa9c2ddc # v7.0.1
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
             const body = context.payload.pull_request?.body ?? '';
@@ -104,7 +107,11 @@ jobs:
 
       - name: Post spec status as PR comment
         if: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' }}
-        uses: marocchino/sticky-pull-request-comment@ce58e0b5d7c5b91d86e5d3c2a23add1ebbec2efe # v2.9.1
+        # 这一步是**通知**,不是守门:真正的门是上面的 test:spec / spec:audit / PR body 校验。
+        # fork 发来的 PR 拿不到 pull-requests:write,评论必然失败 —— 不该因此把整条检查判红。
+        # ⚠️ 仅限通知类步骤可以这样;守门步骤永远不要加 continue-on-error(那就是本次修的「守门空转」病根)。
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.1
         with:
           header: ssd-spec-status
           message: |

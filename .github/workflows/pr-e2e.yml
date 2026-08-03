@@ -67,10 +67,33 @@ jobs:
       - name: Prepare .env.test
         working-directory: .
         run: |
-          if [ ! -f .env.test ]; then
-            echo "[ERROR] .env.test missing — repo should ship it (gitignored secrets live in .env.test.example)"
+          if [ -f .env.test ]; then
+            echo "[ok] .env.test already present"
+            exit 0
+          fi
+          if [ ! -f .env.test.example ]; then
+            echo "[ERROR] 既没有 .env.test 也没有 .env.test.example —— 无法准备 test 环境变量" >&2
             exit 1
           fi
+          cp .env.test.example .env.test
+          echo "[ok] .env.test 由 .env.test.example 生成"
+          # 端口必须与下方健康探针 http://localhost:3002 对齐,不一致就早失败,
+          # 免得等 60s 探测超时才报一个看不出根因的错。
+          . ./.env.test
+          if [ "${BACKEND_PORT}" != "3002" ]; then
+            echo "[ERROR] BACKEND_PORT=${BACKEND_PORT},但健康探针写死 3002,请同步二者" >&2
+            exit 1
+          fi
+
+      - name: Validate compose interpolation
+        working-directory: .
+        run: |
+          # 只做变量插值校验,不拉镜像、不起容器。
+          # 缺变量时这里会直接点名(例如 "required variable INTERNAL_TOKEN is missing a value"),
+          # 而不是等到下面 `make ENV=test up` 才炸 —— 那时错误淹没在 compose 输出里不好定位。
+          docker compose --env-file .env.test \
+            -f docker-compose.yml -f docker-compose.test.yml config -q
+          echo "[ok] compose 变量插值校验通过"
 
       - name: Install backend dependencies
         working-directory: erp-admin-backend
