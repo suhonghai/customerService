@@ -56,11 +56,12 @@ make dev-all
 
 # 3) 跑各自测试
 pnpm --filter erp-admin-backend test
-pnpm --filter ai-cs-demo test         # vitest
-pnpm --filter ai-cs-demo exec playwright test
+pnpm --filter v1-ai-cs-demo test         # vitest
+pnpm --filter v1-ai-cs-demo exec playwright test
+pnpm --filter v1-ai-cs-demo typecheck       # 批 3 #22 待修,修了再加 test
 
 # 4) 子包内 lint / format
-pnpm --filter ai-cs-demo lint
+pnpm --filter v1-ai-cs-demo lint
 pnpm --filter erp-admin-backend lint
 
 # 5) PR 流程
@@ -280,18 +281,13 @@ Then <外部可观察结果>
 - ❌ 跨包行为 spec 写子包(只能看到子包视角,缺全局)
 - ❌ 一个 spec 文件混三层(单元 + 集成 + 跨包)— 拆
 
-举例(之前 11 项整改对应落点):
+举例(代表性 3 行;完整 8 行表见 `docs/ssd-status.md`「整改 → Spec 落点对应表」段):
 
-| 整改                      | 落点                                    |
-| ------------------------- | --------------------------------------- |
-| P0-1 messageCount 语义    | 根(backend + frontend 都感知)           |
-| P0-2 placeholder reaper   | 根(后端 + WS + 前端 reconnect)          |
-| P1-1 handoff ack 落库     | 根(前端 + 后端 + 运营侧)                |
-| P1-2 PII 脱敏             | 根(前端 sanitize + 后端落库 + 运营展示) |
-| P2-1 role 白名单          | `erp-admin-backend/test/`(纯后端)       |
-| P2-2 cs_message.updatedAt | 根(跨包但偏 schema)                     |
-| P2-4 WS auth              | 根(后端 + 前端 handshake)               |
-| P1-3 deleteByKey          | 根(前端 + 后端)                         |
+| 例子                                          | 落点                                    |
+| --------------------------------------------- | --------------------------------------- |
+| 跨包用户可见行为(P0-1 messageCount 语义)     | 根(backend + frontend 都感知)           |
+| 子包内 NestJS 集成(P2-1 role 白名单)         | `erp-admin-backend/test/`(纯后端)       |
+| 纯函数改边界(co-located,如 `deriveTitle` 截 30 字) | `<子包>/src/<file>.spec.ts` / `.test.tsx` |
 
 ### 命令速查
 

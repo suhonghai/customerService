@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start -p 9529",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
