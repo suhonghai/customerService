@@ -15,6 +15,8 @@
 | cs-round-004                                                  | deriveTitle PII 脱敏(身份证/手机/卡号/邮箱)                   | `ai-cs-demo/src/lib/pii-sanitize.test.ts`(vitest)            | implemented | `use-sessions.ts` `deriveTitle` + `lib/pii-sanitize.ts`               | AI       | 2026-07-31   |
 | cs-round-005                                                  | 按 sessionKey 软删 no-op 友好(去掉 upsert-then-delete 副作用) | `erp-admin-backend/test/cs-round-005.e2e-spec.ts`(jest)      | implemented | `internal.service.ts` `deleteSessionByKey` + new controller endpoint  | AI       | 2026-07-31   |
 | cs-round-006                                                  | appendMessage role 白名单                                     | `erp-admin-backend/test/cs-round-006.e2e-spec.ts`(jest)      | implemented | `internal.service.ts` `appendMessage`                                 | AI       | 2026-07-31   |
+| fix-009                                                       | storedToUIMessage metadata.reasoning 契约(空推理不注入键)     | `tests/_specs/fix-009.spec.ts`(vitest 根)                    | implemented | `ai-cs-demo/src/lib/message-converter.ts` `storedToUIMessage`         | AI       | 2026-08-03   |
+| fix-ci-008                                                    | 3 子包 .env.test.example 入仓 + pr-e2e 自动复制               | `tests/_specs/fix-ci-008.spec.ts`(vitest 根)                 | implemented | `pr-e2e.yml` + `ai-cs-demo/.gitignore` + 3 份子包模板                 | AI       | 2026-08-03   |
 
 > 注:`cs-round-001` / `cs-round-002` 的 spec 已根据 §D / P-1 结论从根 `tests/_specs/` 迁到 `erp-admin-backend/test/`(jest 路径)。根目录放的是 redirect 引用。
 
