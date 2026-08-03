@@ -1,0 +1,4 @@
+packages:
+  - 'ai-cs-demo'
+  - 'erp-admin-backend'
+  - 'erp-admin-frontend'
