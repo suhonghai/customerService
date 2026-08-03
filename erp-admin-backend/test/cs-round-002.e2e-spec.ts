@@ -1,5 +1,5 @@
 /**
- * @status accepted
+ * @status implemented
  * @change-id cs-round-002
  *
  * (注:本 spec 需 test DB + .env.test 才能跑;CI pr-e2e.yml 跑;本地跳过)

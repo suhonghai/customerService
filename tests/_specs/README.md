@@ -44,17 +44,18 @@ draft → accepted → implemented → deprecated
 
 工具支撑(全自动):
 
-| 阶段 | 工具 |
-|---|---|
-| 写 spec(在 INDEX.md 加一行,设 @status draft) | 人工 |
-| review 质量(3 条规则) | PR 模板 + Action 强制 |
-| commit 含 [change-id] | commit-msg hook 校验 spec 存在 |
-| CI 跑 spec | vitest(根) + jest(后端 pr-e2e) |
-| 漂移检测(spec ↔ code 漂移) | spec:audit workflow 跑 |
-| 状态报告(粘 PR 评论) | spec:status + sticky comment |
-| 归档 / superseded | 把 @status 改 deprecated + INDEX.md 标 superseded_by |
+| 阶段                                         | 工具                                                 |
+| -------------------------------------------- | ---------------------------------------------------- |
+| 写 spec(在 INDEX.md 加一行,设 @status draft) | 人工                                                 |
+| review 质量(3 条规则)                        | PR 模板 + Action 强制                                |
+| commit 含 [change-id]                        | commit-msg hook 校验 spec 存在                       |
+| CI 跑 spec                                   | vitest(根) + jest(后端 pr-e2e)                       |
+| 漂移检测(spec ↔ code 漂移)                  | spec:audit workflow 跑                               |
+| 状态报告(粘 PR 评论)                         | spec:status + sticky comment                         |
+| 归档 / superseded                            | 把 @status 改 deprecated + INDEX.md 标 superseded_by |
 
 **关键文档**:
+
 - [`INDEX.md`](./INDEX.md):所有 spec 一览(spec ↔ 业务 ↔ owner 关联)
 - `pnpm spec:status`:动态面板(本目录 + 各子包 test/ 下所有 spec)
 - [`/Users/suesea/.claude/plans/`](/Users/suesea/.claude/plans/):plan 文件仓外,不污染仓
@@ -81,9 +82,9 @@ tests/_specs/<change-id>.spec.ts
 
 `<change-id>` 跟三处对齐:
 
-- Changeset / commit message 前缀:`feat(cs-round-001)` 或 `fix(cs-round-001)`
-- PR 标题:`fix(erp-admin): cs-round-001 messageCount semantic aligned`
-- ADR 文件(若涉及):`docs/adr/NNNN-cs-round-001-...`
+- commit message 模板:`feat(cs): [cs-round-001] ...` 或 `fix(cs): [cs-round-001] ...`(强制格式 `<type>(<scope>): [<change-id>] <subject>`,见根 CLAUDE.md「Commit 模板」段)
+- PR 标题:`fix(erp-admin): [cs-round-001] messageCount semantic aligned`(同模板)
+- 子包 README / ai-cs-demo `docs/*-notes.md`(现行 ADR 替代,根 `docs/adr/` **不建**,见根 CLAUDE.md)
 
 ---
 
@@ -129,7 +130,6 @@ describe("cs-round-001: messageCount semantic", () => {
 ```ts
 /**
  * @status accepted
- * @adr 0001
  * @changeset cs-round-001-message-count
  * @author ...
  */

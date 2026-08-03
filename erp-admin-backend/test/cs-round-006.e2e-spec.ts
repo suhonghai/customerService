@@ -1,5 +1,5 @@
 /**
- * @status accepted
+ * @status implemented
  * @change-id cs-round-006
  *
  * cs-round-006:appendMessage role 白名单

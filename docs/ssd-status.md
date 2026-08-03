@@ -10,12 +10,16 @@
 ## 当前快照
 
 - **总维度**:8
-- **已完整落地**:`7`(Dim 1, 3, 4, 5, 7, 8, plus 1 拆)
-- **部分落地 / 进行中**:`1`
+- **已完整落地**:`7`(Dim 1, 3, 4, 5, 6, 7, 8)
+- **部分落地 / 进行中**:`1`(Dim 2 —— 2026-08-03 从 ✅ 降级,见下)
 - **未开始**:`0`
-- **整体成熟度**:`~95%`(工具 + 文档 + 实战 + 关键问题 + 全部 8 维度闭环 + 活文档)
+- **整体成熟度**:`~85%`(工具链齐全且**已验证真的在跑**;扣分项:Dim 2 守门对象为空)
 
-> 最近更新:2026-07-31(Dim 8 完整落地:INDEX 索引 + Liveness 报告 + CLAUDE Living Spec 段)
+> 最近更新:2026-08-03(全仓健康度审计:发现并修复 4 处「守门声称已接、实则空转」,见 P-6)
+>
+> ⚠️ **读这份文档前请先看 P-6**。2026-07-31 曾把 8 个维度全标 ✅,但其中 4 个的 ✅ 是假的 ——
+> 工具写完了,从没被喂过一个「应该失败」的输入。本文档 2026-08-03 起对每个 ✅ 补充
+> 「用什么验证的」,没有验证证据的不再标 ✅。
 
 ---
 
@@ -29,26 +33,36 @@
   - `tests/_specs/README.md`(何时写 / 文件名 / 格式 / 生命周期约定)
 - **判断**:有模板 + 落点规范,Anyone 都能照着写
 
-### 2. Spec 可机器验证 — ✅ 已完成
+### 2. Spec 可机器验证 — 🔴 未闭环(2026-08-03 降级)
 
-- **完成时间**:2026-07-31
+- **原标注**:2026-07-31 ✅ 已完成
+- **降级原因**:`pnpm test:spec` 实际扫不到任何 spec —— `vitest.config.ts` 的 include 限定
+  `tests/_specs/**/*.spec.ts`,而该目录现在只有 `_template.spec.ts`(且被 exclude),
+  加上 `passWithNoTests: true`,输出是 `No test files found, exiting with code 0`。
+  **所以「失败 block merge」这句话从来不成立** —— 它永远不可能失败。
 - **当前状态**:
-  - ✅ `vitest.config.ts` 配置 OK,`pnpm test:spec` 本地跑通
+  - ✅ `vitest.config.ts` 配置本身没问题
   - ✅ 模板格式机器可读
-  - ✅ **CI 已接**:`.github/workflows/ssd-spec-checks.yml` 跑 `pnpm test:spec` 在 PR 触发,失败 block merge
-- **判断**:从 0 到 1 + 守门都齐了,维度 2 闭环
+  - ✅ CI 已接:`.github/workflows/ssd-spec-checks.yml` 会跑 `pnpm test:spec`(2026-08-03 修好坏 pin 后才真正跑起来)
+  - ✅ 2026-08-03 起 `scripts/**/*.test.ts` 纳入 include,`pnpm test:spec` 从 0 tests 变成 10 passed
+  - 🔴 **但根 `tests/_specs/` 仍无任何真 spec**,后端 spec 全在 jest 侧。
+    「根 spec 到底该放什么」这个定位问题没解决前,这个维度不能算闭环。
+- **未完项**:issue #34(`test:spec` 空转)、依赖 issue #17(Spec 落点分层定位)
+- **判断**:工具链没问题,但**守门对象是空的**。标 ✅ 属于自欺。
 
-### 3. Spec ↔ code 双向追溯 — ✅ 已完成(正向)
+### 3. Spec ↔ code 双向追溯 — ✅ 已完成(正向,2026-08-03 才真正生效)
 
-- **完成时间**:2026-07-31
+- **完成时间**:2026-07-31 落地,**2026-08-03 才真正跑通**
 - **当前状态**:
   - ✅ Commit 模板规定带 `[change-id]`(CLAUDE.md「Commit 模板」段)
-  - ✅ 模板有 `@changeset <id>` `@adr NNNN` 注释规范
-  - ✅ **commit-msg hook 校验 `[change-id]`**:`scripts/check-spec-link.ts` 装到 `.husky/commit-msg`,commit 含 `[change-id]` 但 spec 文件不在 3 个可能位置时会 exit 1
+  - ✅ 模板有 `@changeset <id>` 注释规范
+  - ✅ **commit-msg hook 校验 `[change-id]`**:`scripts/check-spec-link.ts` 装到 `.husky/commit-msg`
+  - ⚠️ **2026-07-31 ~ 2026-08-03 期间该校验完全空转**:git 传给 hook 的 `$1` 是相对路径
+    `.git/COMMIT_EDITMSG`,而脚本用 `arg.startsWith('/')` 判断,把路径字符串本身当成了
+    commit message 解析 → 永远走「默认通过」分支 exit 0。这段时间所有 commit 都是被静默放行的。
+    修复见 issue #31 / PR #36,改用 `existsSync(arg)`,并补了 6 个回归 case(含相对路径这个真实调用方式)。
   - ❌ **没有 reverse trace**:改了 code → 自动查哪个 spec 该改(未做,见 P-4 长期方案)
-- **判断**:正向追溯(commit → spec)自动化了,reverse trace 靠 P-4 长期方案
-
-### 4. Spec 状态生命周期 — 🟡 部分完成(提升)
+- **判断**:正向追溯现在是真的在工作了(有回归验证);reverse trace 靠 P-4 长期方案
 
 ### 4. Spec 状态生命周期 — ✅ 已完成
 
@@ -58,7 +72,15 @@
   - ✅ `pnpm spec:status` 出状态面板
   - ✅ 30 天 stale draft 告警规则在脚本里
   - ✅ **CI 接了**:`.github/workflows/ssd-spec-checks.yml` 的 spec:status step 跑 + 用 sticky comment 贴到 PR
-- **判断**:报告 + 推送都齐了,维度 4 闭环
+  - ⚠️ **2026-07-31 ~ 2026-08-03 期间该 workflow 从未真正执行过**:它有两个不存在的 action SHA pin
+    (`github-script@60a0d00439…`、`sticky-pull-request-comment@ce58e0b5…`),
+    GitHub 报 `Unable to resolve action ... unable to find version`。
+    根因是把 annotated tag 的 tag-object SHA 当成了 commit SHA。修复见 issue #6 / PR #36。
+  - ✅ 2026-08-03 修复后首次跑通(该 workflow 首次出现 SUCCESS),
+    并连带暴露 `permissions.pull-requests` 只有 `read` 导致 sticky comment 报
+    `Resource not accessible by integration`,已改 `write`
+  - ✅ `pnpm spec:status` 2026-08-03 修好 `it.each` 漏算(cs-round-006 曾被报 0 scenarios,见 issue #33)
+- **判断**:报告 + 推送都齐了,且 2026-08-03 起**有 workflow 实际 SUCCESS 记录作为证据**,维度 4 闭环
 
 ### 5. Spec review 流程 — ✅ 已完成
 
@@ -77,8 +99,17 @@
   - ✅ `pnpm spec:audit` 跑漂移报告(关键词 grep 源)
   - ✅ 输出 markdown 报告
   - ✅ **CI 已跑**:`.github/workflows/ssd-spec-checks.yml` 在 PR 跑 `pnpm spec:audit`,输出上传 artifact
+  - ⚠️ **2026-07-31 ~ 2026-08-03 期间 spec:audit 完全空转**:`scripts/spec-audit.ts` 写死只扫
+    `tests/_specs/`,而按 §D / P-1 结论后端 spec 已全部迁到 `erp-admin-backend/test/`,
+    该目录只剩 INDEX.md / README.md / \_template.spec.ts → **13 个真 spec 全部漏检**,
+    脚本打印「无 spec」后 `exit 0`,CI 拿一份空报告当绿灯。修复见 issue #8 / PR #36:
+    SPEC_DIRS 与 `spec-status.ts` 对齐,0 spec 时改为 exit 1。
+  - ⚠️ 同期还有两个连带 bug(issue #33):两个脚本各写各的正则,都漏 `it.each` 参数化用例;
+    且 grep 时没排除 spec 自身(后端 spec 就住在 SEARCH_DIRS 里),漂移检测恒为「全部命中」。
+    已抽 `scripts/_spec-scenarios.ts` 共享提取器 + 10 条回归断言根治。
+  - ✅ 修复后实测:0 specs → **13 specs / 122 scenarios / 116 有源码匹配**
   - 🟡 **没 fail 阻断**(只报告,不强制)—— 这是 P-4 的权衡,长期可加 AST 强化(见已知问题段)
-- **判断**:从手工跑 → 自动跑已闭环,精准度靠 P-4 长期方案
+- **判断**:2026-08-03 起才真正在扫东西,精准度靠 P-4 长期方案
 
 ### 7. AI agent 按 spec 干活 — ✅ 已完成
 
@@ -94,14 +125,20 @@
 
 - **完成时间**:2026-07-31
 - **当前状态**:
-  - ✅ 1 份 SSD spec 落库:`erp-admin-backend/test/cs-round-001.e2e-spec.ts`(jest,4 个 Scenario,@status implemented)
-  - ✅ 配套实现改动落库:`erp-admin-backend/src/modules/internal/internal.service.ts`
-  - ✅ spec 自身能 jest 跑通(等 test DB 起;pr-e2e.yml 在 CI 调)
+  - ✅ **6 份 SSD spec 落库**(cs-round-001 ~ 006,见 `tests/_specs/INDEX.md`):
+    - `erp-admin-backend/test/cs-round-00{1,2,3,5,6}.e2e-spec.ts`(jest)
+    - `ai-cs-demo/src/lib/pii-sanitize.test.ts`(vitest,cs-round-004)
+    - 2026-08-03 起 6 份 `@status` 全部为 `implemented`,与 INDEX.md 表格一致(此前漂移,见 issue #13)
+  - ✅ 配套实现改动落库:`erp-admin-backend/src/modules/internal/internal.service.ts` 等
+  - ✅ spec 自身能 jest 跑通(需 test DB;`pr-e2e.yml` 在 CI 调 —— ⚠️ 该 workflow 目前仍未跑通,见 issue #37)
   - ✅ **`tests/_specs/INDEX.md` 索引**:spec ↔ 业务 ↔ owner 关联,新增 spec 必加行
   - ✅ **`spec-status` 升级**:扫根 + 后端两个位置,Liveness Summary + 90 天僵尸警告
   - ✅ **CI 接 jest**:`.github/workflows/pr-e2e.yml` 跑后端 e2e;`.github/workflows/ssd-spec-checks.yml` 跑根 vitest + spec/audit
   - ✅ **CLAUDE.md 加 Living Spec 段**:索引链接 + 维护规则 + 自动化层
-- **判断**:**spec 是活文档**:索引可查、老龄化有告警、CI 守门、commit 强绑定,8 维度闭环
+  - 🟡 **8 个历史 e2e-spec 仍无 `@status` 注释**(internal / faq / ticket / order / auth-rbac / ai-config /
+    session-stats-dict / integration-ai-cs-demo),`pnpm spec:status` 每次都在警告。属 P-4 已接受的权衡范围。
+- **判断**:**spec 是活文档**:索引可查、老龄化有告警、commit 强绑定。
+  但「CI 守门」这一条要打折 —— 后端 e2e 因 issue #37 尚未在 CI 上真正跑通过。
 
 ---
 
@@ -122,8 +159,8 @@
   - 新增 `.github/workflows/ssd-spec-checks.yml`(根 spec + audit 跑根 vitest)
   - 后端 jest e2e 不重做:`.github/workflows/pr-e2e.yml` 已存在,跑真服务(MySQL/Chroma)+ `pnpm --filter erp-admin-backend test`
   - 两个 workflow 互不耦合:
-    - `ssd-spec-checks.yml`:路径过滤 tests/_specs/、docs/、CLAUDE.md 等;不需 DB
-    - `pr-e2e.yml`:路径过滤 erp-admin-backend/、Makefile、docker-compose.*.yml;需 docker compose stack
+    - `ssd-spec-checks.yml`:路径过滤 tests/\_specs/、docs/、CLAUDE.md 等;不需 DB
+    - `pr-e2e.yml`:路径过滤 erp-admin-backend/、Makefile、docker-compose.\*.yml;需 docker compose stack
   - 改维度 2 / 6 → ✅ 已完成
 
 ### §B. commit-msg hook 双向校验
@@ -193,10 +230,15 @@
 
 ## 升级路径(从 30% → 100%)
 
-| 阶段    | 完成项                                                                  | 预计成熟度 | 所需时间 |
-| ------- | ----------------------------------------------------------------------- | ---------- | -------- |
-| 现在    | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + 8 维度全闭环                   | 95%        | —        |
-| 长期    | 团队 onboarding / 多轮 spec 形成习惯 / 后端 jest e2e 扩 cover 全部 11 项 | 100%       | —        |
+| 阶段             | 完成项                                                                   | 预计成熟度    | 所需时间 |
+| ---------------- | ------------------------------------------------------------------------ | ------------- | -------- |
+| 2026-07-31(自评) | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + 8 维度全闭环                  | 95%(**高估**) | —        |
+| 2026-08-03(实测) | 同上,但 4 个守门经实跑验证为空转并已修 3 个(见 P-6)                      | 85%           | —        |
+| 下一步           | 修 issue #34(维度 2 守门对象为空)+ #37(后端 e2e 在 CI 跑通)              | 92%           | —        |
+| 长期             | 团队 onboarding / 多轮 spec 形成习惯 / 后端 jest e2e 扩 cover 全部 11 项 | 100%          | —        |
+
+> 2026-07-31 的 95% 是**没有实跑验证的自评**。2026-08-03 逐个守门喂输入实测后回退到 85%。
+> 这个回退不是退步,是把虚数换成了实数 —— 详见 P-6。
 
 ---
 
@@ -246,9 +288,13 @@
 
 ### P-3 §A 落地时的工作量(预计)
 
-- **现状**:CI 没接 spec 跑(§A),意味着即便改了 spec 实现,合并前不验证
+- **原现状**:CI 没接 spec 跑(§A),意味着即便改了 spec 实现,合并前不验证
 - **触发条件**:P-1 解决之后,§A 才能跑通(CI 上跑 vitest 必须先把 dep hell 解了)
-- **状态**:依赖 P-1;P-1 解决后可 0.5 天落地
+- **状态**:✅ **已解决 / superseded by §A**(2026-07-31 §A 完成,CI 已接)
+- **⚠️ 但注意**:§A「已接」不等于「真的在守门」。2026-08-03 审计发现接上去的三个守门
+  全部空转(见 P-6),`ssd-spec-checks.yml` 直到 2026-08-03 才第一次真正跑起来。
+  P-3 段在 2026-07-31 ~ 2026-08-03 期间一直写着「CI 没接」,与本文档其它段自相矛盾,
+  这处矛盾本身也是「文档与事实脱节」的一例(issue #20)。
 
 ### P-4 spec:audit 漂移检测是关键词 grep,不是真 AST trace
 
@@ -268,6 +314,44 @@
 - **建议方案**:删 `erp-admin-backend/.husky`(如果存在);保持只有根 .husky,根 hook 已能 cover 全 monorepo(因为 git hooks 在 repo root 生效,任何子目录 commit 都触发)
 - **状态**:🟡 已记录 / 实际上未观察到 bypass(因为根 .husky 已覆盖)
 - **落地预估**:0(若已覆盖,无需动)
+
+### P-6 「守门声称已接、实则空转」—— 本项目最严重的系统性问题(2026-08-03 发现)
+
+> **这条优先级高于其它所有 P。** 它不是某个工具的 bug,是一种**验收方式的缺陷**,
+> 会让这份文档里所有的 ✅ 失去意义。
+
+- **现象**:2026-07-31 把 8 个维度全标 ✅,2026-08-03 全仓审计逐个实跑,发现 **4 个守门从落地起就没工作过**:
+
+| 守门                         | 本文档曾经声称             | 实际                                         | issue        |
+| ---------------------------- | -------------------------- | -------------------------------------------- | ------------ |
+| `scripts/check-spec-link.ts` | 维度 3 ✅ 正向追溯已自动化 | 相对路径被当成 commit message,永远 exit 0    | #31          |
+| `pnpm spec:audit`            | 维度 6 ✅ CI 已跑          | 只扫已无 spec 的目录,0 个后 exit 0           | #8           |
+| `ssd-spec-checks.yml`        | 维度 4 / 5 ✅ 已闭环       | 两个 action SHA pin 不存在,workflow 从未启动 | #6           |
+| `pnpm test:spec`             | 维度 2「失败 block merge」 | 0 tests + `passWithNoTests` → 永远 exit 0    | #34 **未修** |
+
+- **根因**:**这些工具写完之后,没有任何一个被喂过一个「应该失败」的输入。**
+  验收标准是「命令跑完 exit 0」,而 exit 0 既可能是「检查通过」,也可能是「压根没检查」——
+  这两种情况在 CI 面板上长得一模一样。
+
+- **为什么会连续发生 4 次**:守门工具有个共性 —— **它平时就应该 exit 0**。
+  一个业务函数写错了会立刻有人报错,一个守门写错了会安静地放行所有东西,
+  而「没人被拦下」看起来正好像「大家都很规范」。
+
+- **对策(已执行)**:
+
+  1. 每个守门必须有**反向测试**:喂一个应该被拦的输入,断言它 exit 1。
+     `scripts/_spec-scenarios.test.ts` 的 10 条断言全部来自真实踩坑,是这条的第一次落地。
+  2. 空输入必须 fail:`spec-audit.ts` 扫到 0 个 spec 时改为 exit 1 —— 「没东西可查」是守门失效,不是通过。
+  3. 通知类步骤才允许 `continue-on-error`,守门步骤永远不允许(已写进 `ssd-spec-checks.yml` 注释)。
+  4. 声称「CI 已接」时必须附**一次真实 run 的链接或结论**,不能只写「已接」。
+
+- **对策(待执行)**:
+
+  - 给 `check-spec-link.ts` / `spec-audit.ts` 补反向测试(目前只有 `_spec-scenarios` 有)
+  - 维度 2 在 issue #34 修好前不得标 ✅
+
+- **本文档的新规矩**:**任何 ✅ 后面必须能回答「你喂了什么输入验证它会失败?」**
+  答不上来的,标 🟡。
 
 ---
 

@@ -9,6 +9,7 @@
 - bug fix 引用 issue 号
 - 如果有对应 spec,引用:specs/<task-id>/PRODUCT.md + TECH.md
 -->
+
 - [ ] 关联 task ID(`W11-P0-NN` / `W11-P1-NN` / `W11-P2-NN` / `W11-P3-NN` 或 issue 号)已写入标题
 - [ ] 关联 spec(PRODUCT.md / TECH.md)已 approved 或本 PR 同时引入
 
@@ -20,6 +21,7 @@
 - 手动测试:步骤 + 截图 / 录屏(UI 改动必带)
 - 性能验证:基准 / 压测结果
 -->
+
 - [ ] 单元测试覆盖:是 / 否(说明)
 - [ ] E2E 测试覆盖:是 / 否(改动 frontend 时必带)
 - [ ] 手动测试:是 / 否
@@ -37,12 +39,12 @@
 
 ### 代码红线
 
-- [ ] **包名红线**:`grep -rn "com\.iflytek" erp-admin-backend/src/ erp-admin-frontend/src/ | wc -l` = 0(W11 已迁出 iflytek,残留即红线)
+- [ ] **包名红线**:`grep -rn "com\.iflytek" erp-admin-backend/src/ erp-admin-frontend/src/ ai-cs-demo/src/ | wc -l` = 0(W11 已迁出 iflytek,残留即红线)
 - [ ] **Prisma schema 兼容**:未引入 SQL CTE / generated column / FOREIGN KEY 约束 / `AUTO_INCREMENT`(MySQL 兼容 + Prisma migrate 兼容)
 
 ### 安全红线
 
-- [ ] **环境变量隔离**:`.env.*` 未入库(`.gitignore` 已守,二次验证 `git ls-files | grep -E '^\.env\.' | grep -v '\.env\.example' | wc -l` = 0)
+- [ ] **环境变量隔离**:`.env.*` 未入库(`.gitignore` 已守,二次验证 `git ls-files | grep -E '^\.env\.' | grep -vE '\.example$' | wc -l` = 0)
 - [ ] **日志脱敏**:`pino` 日志未输出明文 `password` / `token` / `apiKey` / `secret` / 身份证号 / 手机号 / email(如需输出,必须 mask)
 - [ ] **API 限流**:本 PR 新增的公开 API endpoint 已加 NestJS `ThrottlerGuard`(或留 `// TODO(throttle)` 标注后续补)
 - [ ] **Schema 迁移**:本 PR 改动 `erp-admin-backend/prisma/schema.prisma` 时,已附 `prisma/migrations/` 文件(`pnpm prisma migrate dev` 生成)
@@ -75,6 +77,7 @@
 ## Agent Mode
 
 <!-- 单选;若 PR 同时含 agent + 人工提交,以最后一次 push 的来源为准 -->
+
 - [ ] 本 PR 完全由 agent automation 创建(任何工具:Claude Code / Codex / 自定义 cron 等)
 - [ ] 本 PR 含人工 commit / 编辑
 

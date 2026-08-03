@@ -1,5 +1,5 @@
 /**
- * @status accepted
+ * @status implemented
  * @change-id cs-round-005
  *
  * cs-round-005:按 sessionKey 软删(no-op 友好)

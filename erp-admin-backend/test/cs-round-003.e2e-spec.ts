@@ -1,5 +1,5 @@
 /**
- * @status accepted
+ * @status implemented
  * @change-id cs-round-003
  *
  * cs-round-003:handoff ack 落库(跨包)
