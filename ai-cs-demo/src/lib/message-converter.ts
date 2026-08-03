@@ -71,9 +71,10 @@ export function storedToUIMessage(m: StoredMessage, markInterrupted: boolean): U
   if (textParts.length === 0 && !reasoning && typeof baseMeta.lastChunkType === 'string') {
     reasoning = buildReasoningText(baseMeta);
   }
-  const metadata = markInterrupted
-    ? { ...baseMeta, isInterrupted: true, reasoning }
-    : { ...baseMeta, reasoning };
+  // 仅当 reasoning 真有内容时才注入 metadata;否则保持原 metadata 干净(避免污染契约)
+  const metadata: Record<string, unknown> = markInterrupted
+    ? { ...baseMeta, ...(reasoning ? { reasoning } : {}), isInterrupted: true }
+    : { ...baseMeta, ...(reasoning ? { reasoning } : {}) };
   return {
     id: String(m.id),
     role: m.role,
