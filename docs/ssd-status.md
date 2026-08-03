@@ -103,6 +103,21 @@
   - ✅ **CLAUDE.md 加 Living Spec 段**:索引链接 + 维护规则 + 自动化层
 - **判断**:**spec 是活文档**:索引可查、老龄化有告警、CI 守门、commit 强绑定,8 维度闭环
 
+## 整改 → Spec 落点对应表(8 项已落地)
+
+> 来源:2026-07-31 11 项整改的落点决策;`CLAUDE.md` 「Spec 落点分层」段仅保留代表性 3 行,完整 8 行表在此段(2026-08-03 #17 迁移)。
+
+| 整改                         | 落点                                                  |
+| ---------------------------- | ----------------------------------------------------- |
+| P0-1 messageCount 语义        | 根(backend + frontend 都感知)                         |
+| P0-2 placeholder reaper       | 根(后端 + WS + 前端 reconnect)                        |
+| P1-1 handoff ack 落库         | 根(前端 + 后端 + 运营侧)                              |
+| P1-2 PII 脱敏                 | 根(前端 sanitize + 后端落库 + 运营展示)              |
+| P2-1 role 白名单              | `erp-admin-backend/test/`(纯后端)                    |
+| P2-2 cs_message.updatedAt     | 根(跨包但偏 schema)                                  |
+| P2-4 WS auth                  | 根(后端 + 前端 handshake)                            |
+| P1-3 deleteByKey              | 根(前端 + 后端)                                       |
+
 ---
 
 ## 行动项(按 ROI 排序)
