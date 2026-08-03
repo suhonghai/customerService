@@ -49,7 +49,11 @@ function main() {
     console.error('用法:tsx scripts/check-spec-link.ts <commit-message-file-or-text>');
     process.exit(1);
   }
-  const message = arg.startsWith('/') ? readFileSync(arg, 'utf-8') : arg;
+  // git 传给 commit-msg hook 的 $1 是**相对路径**(.git/COMMIT_EDITMSG),
+  // 所以不能用 startsWith('/') 判断是不是路径 —— 那会把路径字符串本身当成 message,
+  // 导致既匹配不到 [change-id] 也匹配不到 no-spec:,永远静默放行。
+  // 改用 existsSync:同时兼容绝对路径、相对路径,以及本地手测直接传 message 文本。
+  const message = existsSync(arg) ? readFileSync(arg, 'utf-8') : arg;
   const firstLine = message.split('\n')[0].trim();
 
   // ── 规则 1:no-spec: 标签 → 跳过
