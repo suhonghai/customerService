@@ -57,18 +57,36 @@ export function useRealtime({
 }: UseRealtimeOptions) {
   // 首次连接不算 reconnect(recovery ref:跳过补漏)
   const isFirstConnectRef = useRef(true);
+
+  // ── 2026-08-04 修复:把不稳定的函数引用缓存到 ref ──
+  // 调用方(page.tsx)每次 render 都会传新 onMessage / onRecover / getKnownMessageIds 闭包,
+  // 旧实现把 onRecover / getKnownMessageIds 放进 effect deps → 每次 render effect 重跑 →
+  // sock.on('connect', ...) listener 累积 + connectRealtime 重调 → WS reconnect 时所有
+  // 累积的 listener 都触发 refetchSessionHistory → /api/chat 流式期间 history 雪崩
+  // 改法:用 ref 缓存最新 callback,effect 只依赖 [sessionKey, enabled, backendSessionId]
+  // 三个稳定值;handler 内通过 ref 读最新 callback(避免 effect 重跑 + 闭包陷阱)。
+  const onMessageRef = useRef(onMessage);
+  const onRecoverRef = useRef(onRecover);
+  const getKnownMessageIdsRef = useRef(getKnownMessageIds);
+  // 无依赖 useEffect:每次 render 同步 ref(不写返回值,不依赖 effect 时序)
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+    onRecoverRef.current = onRecover;
+    getKnownMessageIdsRef.current = getKnownMessageIds;
+  });
+
   useEffect(() => {
     if (!enabled || !sessionKey) return;
     const sock = connectRealtime(sessionKey);
-    sock.on('connect', () => console.log('[realtime] connected sessionKey=', sessionKey));
-    sock.on('disconnect', (r) => console.log('[realtime] disconnected:', r));
-    sock.on('connect_error', (e) => console.warn('[realtime] connect_error:', e.message));
-    sock.on('connect', async () => {
+
+    // 用局部 const 持有 listener 引用,cleanup 才能精确 off 掉(防 listener 累积)
+    const onConnect = () => console.log('[realtime] connected sessionKey=', sessionKey);
+    const onDisconnect = (r: unknown) => console.log('[realtime] disconnected:', r);
+    const onConnectError = (e: Error) =>
+      console.warn('[realtime] connect_error:', e.message);
+    const onConnectRecover = async () => {
       // 已被 connectionStateRecovery 恢复 → 跳过补漏
-      const socketInternal = sock as unknown as {
-        recovered?: boolean;
-        previousSession?: unknown;
-      };
+      const socketInternal = sock as unknown as { recovered?: boolean };
       if (socketInternal.recovered) {
         console.log('[realtime] recovered by connectionStateRecovery');
         return;
@@ -79,6 +97,9 @@ export function useRealtime({
         return;
       }
       // 非首次 + 未被 server 恢复 → 拉 history diff 补漏
+      // 注:用 ref 读最新 callback(避免 effect 闭包陷阱 + 闭包内 callback 引用过期)
+      const onRecover = onRecoverRef.current;
+      const getKnownMessageIds = getKnownMessageIdsRef.current;
       if (!backendSessionId || !onRecover || !getKnownMessageIds) return;
       console.log('[realtime] reconnect without recovery, refetching history');
       try {
@@ -92,15 +113,28 @@ export function useRealtime({
       } catch (e) {
         console.warn('[realtime] refetch history failed:', (e as Error).message);
       }
+    };
+
+    sock.on('connect', onConnect);
+    sock.on('disconnect', onDisconnect);
+    sock.on('connect_error', onConnectError);
+    sock.on('connect', onConnectRecover);
+
+    // onOperatorReply handler 也用 ref 读最新 onMessage(避免 stale closure)
+    const off = onOperatorReply((payload) => {
+      onMessageRef.current?.(payload);
     });
-    const off = onOperatorReply(onMessage);
+
     return () => {
+      // cleanup:精确移除所有 sock.on() listener(防累积 leak)
+      sock.off('connect', onConnect);
+      sock.off('disconnect', onDisconnect);
+      sock.off('connect_error', onConnectError);
+      sock.off('connect', onConnectRecover);
       off();
     };
-    // onMessage / onRecover / getKnownMessageIds 变化不重连(handler 由 off/on 自然 swap);
-    // recovery 逻辑直接读最新 closure(每次 connect 触发时调用)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionKey, enabled, backendSessionId, onRecover, getKnownMessageIds]);
+    // 依赖精简为 3 个稳定值:onMessage / onRecover / getKnownMessageIds 通过 ref 读最新
+  }, [sessionKey, enabled, backendSessionId]);
 }
 
 /** App unmount 时断开 WS(独立 hook,挂在根组件即可) */
