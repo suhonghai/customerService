@@ -107,22 +107,24 @@ pnpm --filter erp-admin-backend lint
 
 **核心理念**:**spec 不是文档,是会跑的代码**。它随业务演进,跟 commit 强绑定,跟 PR review 强绑定。
 
-| 想看 | 路径 |
-|---|---|
-| **所有 spec 一览**(spec ↔ 业务 ↔ owner) | [`tests/_specs/INDEX.md`](./tests/_specs/INDEX.md) |
-| 动态状态面板(spec 数量 / stale / @status 漏标) | `pnpm spec:status` |
-| 漂移检测(spec ↔ code 漂移)| `pnpm spec:audit` |
-| CI 守门(vitest + audit + spec:status 评论)| `.github/workflows/ssd-spec-checks.yml` |
-| 后端 spec 怎么走 jest | `tests/_specs/README.md` "后端 spec 跑哪里"段 |
-| 整个 SSD 工作流状态 | [`docs/ssd-status.md`](./docs/ssd-status.md) |
+| 想看                                           | 路径                                               |
+| ---------------------------------------------- | -------------------------------------------------- |
+| **所有 spec 一览**(spec ↔ 业务 ↔ owner)      | [`tests/_specs/INDEX.md`](./tests/_specs/INDEX.md) |
+| 动态状态面板(spec 数量 / stale / @status 漏标) | `pnpm spec:status`                                 |
+| 漂移检测(spec ↔ code 漂移)                    | `pnpm spec:audit`                                  |
+| CI 守门(vitest + audit + spec:status 评论)     | `.github/workflows/ssd-spec-checks.yml`            |
+| 后端 spec 怎么走 jest                          | `tests/_specs/README.md` "后端 spec 跑哪里"段      |
+| 整个 SSD 工作流状态                            | [`docs/ssd-status.md`](./docs/ssd-status.md)       |
 
 **索引的维护规则**:
+
 - **新增 spec** → 在 `INDEX.md` 加一行,设 `@status draft`
 - **改 spec** → 改对应行 + 更新 last-updated
 - **废弃 spec** → `@status deprecated` + INDEX 标 `superseded_by` 引用新 spec
 - **季度 review** → owner 过表,把 90+ 天未动的 draft 推动 / 改需求 / 删
 
 **自动化层**(每条都跑):
+
 - commit-msg hook:commit 含 `[change-id]` 必能找到 spec
 - PR 模板:Spec Quality Review 段 + Action 校验勾选
 - CI workflow:test:spec + spec:audit + spec:status → PR 评论
@@ -144,7 +146,8 @@ pnpm --filter erp-admin-backend lint
 
 - 自包含(spec + 文件路径 + 行号 + 期望产出格式)
 - 改完跑测、跑 spec 验证
-- 回来只给 diff stat + 测试输出
+- 回来只给 **diff stat + 测试输出**,**严格按 [`scripts/SUBAGENT_RETURN.template.md`](./scripts/SUBAGENT_RETURN.template.md) 格式**(≤ 30 行硬上限)
+- brief 最后一行必附:「回包必须严格按 `scripts/SUBAGENT_RETURN.template.md` 格式,不准自由发挥」
 
 **Worktree 隔离**:大改动用 `git worktree add .claude/worktrees/<branch> -b <name>`,改完 merge。
 
@@ -285,10 +288,10 @@ Then <外部可观察结果>
 
 举例(代表性 3 行;完整 8 行表见 `docs/ssd-status.md`「整改 → Spec 落点对应表」段):
 
-| 例子                                          | 落点                                    |
-| --------------------------------------------- | --------------------------------------- |
-| 跨包用户可见行为(P0-1 messageCount 语义)     | 根(backend + frontend 都感知)           |
-| 子包内 NestJS 集成(P2-1 role 白名单)         | `erp-admin-backend/test/`(纯后端)       |
+| 例子                                               | 落点                                      |
+| -------------------------------------------------- | ----------------------------------------- |
+| 跨包用户可见行为(P0-1 messageCount 语义)           | 根(backend + frontend 都感知)             |
+| 子包内 NestJS 集成(P2-1 role 白名单)               | `erp-admin-backend/test/`(纯后端)         |
 | 纯函数改边界(co-located,如 `deriveTitle` 截 30 字) | `<子包>/src/<file>.spec.ts` / `.test.tsx` |
 
 ### 命令速查
