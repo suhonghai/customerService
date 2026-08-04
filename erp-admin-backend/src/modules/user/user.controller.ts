@@ -73,10 +73,7 @@ export class UserController {
   @Roles('super_admin')
   @RequirePermission('user:delete')
   @ApiOperation({ summary: '软删除用户' })
-  async delete(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() cu: ICurrentUser,
-  ) {
+  async delete(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
     return this.userService.delete(id, cu.id);
   }
 
@@ -85,10 +82,7 @@ export class UserController {
   @Roles('super_admin')
   @RequirePermission('user:reset-password')
   @ApiOperation({ summary: '重置密码(吊销所有 refresh token)' })
-  async resetPassword(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: ResetPasswordDto,
-  ) {
+  async resetPassword(@Param('id', ParseIntPipe) id: number, @Body() dto: ResetPasswordDto) {
     return this.userService.resetPassword(id, dto);
   }
 
@@ -97,10 +91,7 @@ export class UserController {
   @Roles('super_admin', 'agent_lead')
   @RequirePermission('user:update')
   @ApiOperation({ summary: '启用/禁用用户' })
-  async toggleStatus(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() cu: ICurrentUser,
-  ) {
+  async toggleStatus(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
     return this.userService.toggleStatus(id, cu.id);
   }
 
@@ -109,10 +100,7 @@ export class UserController {
   @Roles('super_admin')
   @RequirePermission('user:assign-role')
   @ApiOperation({ summary: '分配角色' })
-  async assignRoles(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: AssignRolesDto,
-  ) {
+  async assignRoles(@Param('id', ParseIntPipe) id: number, @Body() dto: AssignRolesDto) {
     return this.userService.assignRoles(id, dto);
   }
 }

@@ -173,10 +173,7 @@ export class OrderService {
     if (!dto.items || dto.items.length === 0) {
       throw new BizException(BizCode.PARAM_ERROR, '订单至少包含 1 个商品');
     }
-    const totalAmount = dto.items.reduce(
-      (sum, i) => sum + Number(i.price) * Number(i.quantity),
-      0,
-    );
+    const totalAmount = dto.items.reduce((sum, i) => sum + Number(i.price) * Number(i.quantity), 0);
 
     // 订单号生成(P2002 重试 3 次)
     let order;
@@ -215,18 +212,10 @@ export class OrderService {
         });
         break;
       } catch (e) {
-        if (
-          e instanceof Prisma.PrismaClientKnownRequestError &&
-          e.code === 'P2002'
-        ) {
-          this.logger.warn(
-            `订单号冲突,重试 attempt=${attempt + 1}: ${(e as Error).message}`,
-          );
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          this.logger.warn(`订单号冲突,重试 attempt=${attempt + 1}: ${(e as Error).message}`);
           if (attempt === 2) {
-            throw new BizException(
-              BizCode.SERVER_ERROR,
-              '订单号生成失败(并发冲突),请重试',
-            );
+            throw new BizException(BizCode.SERVER_ERROR, '订单号生成失败(并发冲突),请重试');
           }
           continue;
         }
@@ -259,10 +248,7 @@ export class OrderService {
       throw new BizException(BizCode.ORDER_NOT_FOUND, '订单不存在');
     }
     if (exist.orderStatus === 5) {
-      throw new BizException(
-        BizCode.STATE_NOT_ALLOW,
-        '已取消订单不可修改',
-      );
+      throw new BizException(BizCode.STATE_NOT_ALLOW, '已取消订单不可修改');
     }
     const updated = await this.prisma.order.update({
       where: { id },
@@ -293,11 +279,7 @@ export class OrderService {
   // ============================================================
   // PUT /api/orders/:id/status — 改状态(状态机约束)
   // ============================================================
-  async updateStatus(
-    id: number,
-    dto: UpdateOrderStatusDto,
-    currentUserId: number,
-  ) {
+  async updateStatus(id: number, dto: UpdateOrderStatusDto, currentUserId: number) {
     const exist = await this.prisma.order.findUnique({ where: { id } });
     if (!exist || exist.deletedAt) {
       throw new BizException(BizCode.ORDER_NOT_FOUND, '订单不存在');
@@ -373,12 +355,7 @@ export class OrderService {
   // ============================================================
   // POST /api/orders/:id/refund — 退款(全退 / 部分退)
   // ============================================================
-  async refund(
-    id: number,
-    dto: RefundOrderDto,
-    currentUserId: number,
-    currentUsername?: string,
-  ) {
+  async refund(id: number, dto: RefundOrderDto, currentUserId: number, currentUsername?: string) {
     const exist = await this.prisma.order.findUnique({ where: { id } });
     if (!exist || exist.deletedAt) {
       throw new BizException(BizCode.ORDER_NOT_FOUND, '订单不存在');
@@ -534,9 +511,7 @@ export class OrderService {
    * 订单号生成:ORD-YYYYMMDDXXX(每日 001 起)
    * 用 count + 1 实现,并发冲突由 P2002 重试兜底
    */
-  private async generateOrderNo(
-    tx?: Prisma.TransactionClient,
-  ): Promise<string> {
+  private async generateOrderNo(tx?: Prisma.TransactionClient): Promise<string> {
     const client = (tx ?? this.prisma) as Prisma.TransactionClient;
     const today = dayjs().format('YYYYMMDD');
     const count = await client.order.count({
@@ -616,8 +591,7 @@ export class OrderService {
       completedAt: o.completedAt,
       cancelledAt: o.cancelledAt,
       refundedAt: o.refundedAt,
-      refundAmount:
-        o.refundAmount != null ? Number(o.refundAmount) : null,
+      refundAmount: o.refundAmount != null ? Number(o.refundAmount) : null,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
       items: (o.items ?? []).map((it) => ({

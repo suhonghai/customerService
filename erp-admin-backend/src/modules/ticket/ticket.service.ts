@@ -87,10 +87,7 @@ export class TicketService {
     if (query.creatorId !== undefined) where.creatorId = query.creatorId;
     if (query.keyword) {
       // OR:title / content 含 keyword
-      where.OR = [
-        { title: { contains: query.keyword } },
-        { content: { contains: query.keyword } },
-      ];
+      where.OR = [{ title: { contains: query.keyword } }, { content: { contains: query.keyword } }];
     }
     if (query.overdue === true) {
       // SLA 过期 = 未关闭(status 1/2/3)且 slaDeadline < now
@@ -221,18 +218,10 @@ export class TicketService {
         });
         break;
       } catch (e) {
-        if (
-          e instanceof Prisma.PrismaClientKnownRequestError &&
-          e.code === 'P2002'
-        ) {
-          this.logger.warn(
-            `工单号冲突,重试 attempt=${attempt + 1}: ${(e as Error).message}`,
-          );
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          this.logger.warn(`工单号冲突,重试 attempt=${attempt + 1}: ${(e as Error).message}`);
           if (attempt === 2) {
-            throw new BizException(
-              BizCode.SERVER_ERROR,
-              '工单号生成失败(并发冲突),请重试',
-            );
+            throw new BizException(BizCode.SERVER_ERROR, '工单号生成失败(并发冲突),请重试');
           }
           continue;
         }
@@ -264,11 +253,7 @@ export class TicketService {
   // PUT /api/tickets/:id/assign — 分配工单
   //   改 status=2(处理中) + 写 log(action=assign)
   // ============================================================
-  async assign(
-    id: number,
-    dto: AssignTicketDto,
-    currentUserId: number,
-  ) {
+  async assign(id: number, dto: AssignTicketDto, currentUserId: number) {
     const exist = await this.prisma.csTicket.findUnique({
       where: { id },
       include: { assignee: { select: { id: true, username: true, nickname: true } } },
@@ -288,10 +273,7 @@ export class TicketService {
 
     // 状态机:1(待领取)→2(处理中)才是正常 assign;已关闭(4)不能再 assign
     if (exist.status === 4) {
-      throw new BizException(
-        BizCode.STATE_NOT_ALLOW,
-        '已关闭工单不可重新分配',
-      );
+      throw new BizException(BizCode.STATE_NOT_ALLOW, '已关闭工单不可重新分配');
     }
     if (exist.status === 3) {
       throw new BizException(
@@ -322,9 +304,7 @@ export class TicketService {
         data: {
           ticketId: id,
           action: LOG_ACTION.ASSIGN,
-          fromVal: exist.assignee
-            ? `${exist.assignee.id}:${exist.assignee.username}`
-            : null,
+          fromVal: exist.assignee ? `${exist.assignee.id}:${exist.assignee.username}` : null,
           toVal: `${target.id}:${target.username}`,
           comment: `分配给 ${target.nickname ?? target.username}`,
           operatorId: currentUserId,
@@ -372,11 +352,7 @@ export class TicketService {
   // ============================================================
   // PUT /api/tickets/:id/status — 改状态(状态机约束)
   // ============================================================
-  async updateStatus(
-    id: number,
-    dto: UpdateTicketStatusDto,
-    currentUserId: number,
-  ) {
+  async updateStatus(id: number, dto: UpdateTicketStatusDto, currentUserId: number) {
     const exist = await this.prisma.csTicket.findUnique({ where: { id } });
     if (!exist || exist.deletedAt) {
       throw new BizException(BizCode.TICKET_NOT_FOUND, '工单不存在');
@@ -456,25 +432,17 @@ export class TicketService {
   // ============================================================
   // POST /api/tickets/:id/reply — 回复工单(只写 log,不改 status)
   // ============================================================
-  async reply(
-    id: number,
-    dto: ReplyTicketDto,
-    currentUserId: number,
-  ) {
+  async reply(id: number, dto: ReplyTicketDto, currentUserId: number) {
     const exist = await this.prisma.csTicket.findUnique({ where: { id } });
     if (!exist || exist.deletedAt) {
       throw new BizException(BizCode.TICKET_NOT_FOUND, '工单不存在');
     }
     if (exist.status === 4) {
-      throw new BizException(
-        BizCode.STATE_NOT_ALLOW,
-        '已关闭工单不可回复',
-      );
+      throw new BizException(BizCode.STATE_NOT_ALLOW, '已关闭工单不可回复');
     }
 
     // log 摘要 = content 前 50 字
-    const summary =
-      dto.content.length > 50 ? `${dto.content.slice(0, 50)}...` : dto.content;
+    const summary = dto.content.length > 50 ? `${dto.content.slice(0, 50)}...` : dto.content;
 
     const log = await this.prisma.csTicketLog.create({
       data: {
@@ -516,21 +484,19 @@ export class TicketService {
       });
 
       // NEW: realtime push to ai-cs-demo subscribers of this session
-      this.realtime.server
-        .to(`session:${exist.sessionId}`)
-        .emit('operator_reply', {
-          sessionId: exist.sessionId,
-          messageId: created.id,
-          role: 'assistant',
-          content: created.content,
-          status: created.status,
-          metadata: created.metadata,
-          createdAt: created.createdAt.toISOString(),
-          // Business identification for customer-facing bubble:
-          // ticketNo for audit/二次回访, operatorName for "哪个客服在处理".
-          ticketNo: exist.ticketNo,
-          operatorName,
-        });
+      this.realtime.server.to(`session:${exist.sessionId}`).emit('operator_reply', {
+        sessionId: exist.sessionId,
+        messageId: created.id,
+        role: 'assistant',
+        content: created.content,
+        status: created.status,
+        metadata: created.metadata,
+        createdAt: created.createdAt.toISOString(),
+        // Business identification for customer-facing bubble:
+        // ticketNo for audit/二次回访, operatorName for "哪个客服在处理".
+        ticketNo: exist.ticketNo,
+        operatorName,
+      });
     }
 
     void this.audit.create({
@@ -635,27 +601,24 @@ export class TicketService {
       resolvedAt: { not: null },
     };
 
-    const [pending, processing, resolvedToday, overdue, resolvedTickets] =
-      await Promise.all([
-        this.prisma.csTicket.count({ where: pendingWhere }),
-        this.prisma.csTicket.count({ where: processingWhere }),
-        this.prisma.csTicket.count({ where: resolvedTodayWhere }),
-        this.prisma.csTicket.count({ where: overdueWhere }),
-        this.prisma.csTicket.findMany({
-          where: avgWhere,
-          select: { createdAt: true, resolvedAt: true },
-          orderBy: { resolvedAt: 'desc' },
-          take: 100,
-        }),
-      ]);
+    const [pending, processing, resolvedToday, overdue, resolvedTickets] = await Promise.all([
+      this.prisma.csTicket.count({ where: pendingWhere }),
+      this.prisma.csTicket.count({ where: processingWhere }),
+      this.prisma.csTicket.count({ where: resolvedTodayWhere }),
+      this.prisma.csTicket.count({ where: overdueWhere }),
+      this.prisma.csTicket.findMany({
+        where: avgWhere,
+        select: { createdAt: true, resolvedAt: true },
+        orderBy: { resolvedAt: 'desc' },
+        take: 100,
+      }),
+    ]);
 
     const avgResolveMinutes =
       resolvedTickets.length > 0
         ? Math.round(
             resolvedTickets.reduce(
-              (sum, t) =>
-                sum +
-                ((t.resolvedAt as Date).getTime() - t.createdAt.getTime()),
+              (sum, t) => sum + ((t.resolvedAt as Date).getTime() - t.createdAt.getTime()),
               0,
             ) /
               resolvedTickets.length /
@@ -680,9 +643,7 @@ export class TicketService {
    * 工单号生成:T-YYYYMMDDXXX(每日 001 起)
    * 用 count + 1 实现,并发冲突由 P2002 重试兜底
    */
-  private async generateTicketNo(
-    tx?: Prisma.TransactionClient,
-  ): Promise<string> {
+  private async generateTicketNo(tx?: Prisma.TransactionClient): Promise<string> {
     const client = (tx ?? this.prisma) as Prisma.TransactionClient;
     const today = dayjs().format('YYYYMMDD');
     // Day 9 修:用 MAX(后缀) + 1 而非 COUNT + 1
@@ -750,10 +711,7 @@ export class TicketService {
     withLogs = false,
   ) {
     const now = new Date();
-    const slaOverdue =
-      t.slaDeadline != null &&
-      t.slaDeadline < now &&
-      [1, 2, 3].includes(t.status);
+    const slaOverdue = t.slaDeadline != null && t.slaDeadline < now && [1, 2, 3].includes(t.status);
 
     const base = {
       id: t.id,
@@ -857,9 +815,7 @@ export class TicketService {
         where: { id: ticket.assigneeId },
         select: { departmentId: true },
       });
-      return (
-        u?.departmentId != null && scope.customDeptIds.includes(u.departmentId)
-      );
+      return u?.departmentId != null && scope.customDeptIds.includes(u.departmentId);
     }
     return false;
   }

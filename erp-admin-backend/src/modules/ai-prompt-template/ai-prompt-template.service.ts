@@ -75,10 +75,7 @@ export class AiPromptTemplateService {
         },
       });
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.USERNAME_EXISTS, 'Prompt 模板 code 已存在');
       }
       throw e;
@@ -103,10 +100,7 @@ export class AiPromptTemplateService {
         },
       });
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.USERNAME_EXISTS, 'Prompt 模板 code 已存在');
       }
       throw e;

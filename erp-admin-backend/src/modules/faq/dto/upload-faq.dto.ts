@@ -1,9 +1,4 @@
-import {
-  IsOptional,
-  IsString,
-  MaxLength,
-  IsNotEmpty,
-} from 'class-validator';
+import { IsOptional, IsString, MaxLength, IsNotEmpty } from 'class-validator';
 
 /**
  * POST /api/faq/upload  +  POST /api/faq/:id/upload-version

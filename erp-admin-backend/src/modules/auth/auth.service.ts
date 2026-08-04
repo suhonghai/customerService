@@ -81,10 +81,7 @@ export class AuthService {
     // 2) 锁定检查
     if (user.lockedUntil && user.lockedUntil > new Date()) {
       const remainMin = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000);
-      throw new BizException(
-        40004,
-        `账号已锁定,请 ${remainMin} 分钟后再试`,
-      );
+      throw new BizException(40004, `账号已锁定,请 ${remainMin} 分钟后再试`);
     }
 
     // 3) 密码校验
@@ -102,10 +99,7 @@ export class AuthService {
           where: { id: user.id },
           data: updateData,
         });
-        throw new BizException(
-          40004,
-          `连续 ${LOGIN_LOCK.MAX_FAILS} 次登录失败,账号锁定 15 分钟`,
-        );
+        throw new BizException(40004, `连续 ${LOGIN_LOCK.MAX_FAILS} 次登录失败,账号锁定 15 分钟`);
       }
       await this.prisma.user.update({
         where: { id: user.id },

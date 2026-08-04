@@ -48,17 +48,11 @@ export class LocalFileStorage implements FileStorageProvider {
     try {
       fs.mkdirSync(this.uploadDir, { recursive: true });
     } catch (e) {
-      this.logger.warn(
-        `mkdir uploadDir ${this.uploadDir} failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`mkdir uploadDir ${this.uploadDir} failed: ${(e as Error).message}`);
     }
   }
 
-  async save(
-    buffer: Buffer,
-    filename: string,
-    subdir: string,
-  ): Promise<string> {
+  async save(buffer: Buffer, filename: string, subdir: string): Promise<string> {
     const now = new Date();
     const year = String(now.getFullYear());
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -95,10 +89,7 @@ export class LocalFileStorage implements FileStorageProvider {
 
   async exists(relativePath: string): Promise<boolean> {
     try {
-      await fs.promises.access(
-        path.join(this.uploadDir, relativePath),
-        fs.constants.R_OK,
-      );
+      await fs.promises.access(path.join(this.uploadDir, relativePath), fs.constants.R_OK);
       return true;
     } catch {
       return false;

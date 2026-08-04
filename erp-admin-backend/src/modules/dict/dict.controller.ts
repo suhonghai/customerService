@@ -14,10 +14,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RequirePermission } from '../../common/decorators/permission.decorator';
-import {
-  CurrentUser,
-  ICurrentUser,
-} from '../../common/decorators/user.decorator';
+import { CurrentUser, ICurrentUser } from '../../common/decorators/user.decorator';
 import { DictService } from './dict.service';
 import { CreateDictTypeDto } from './dto/create-dict-type.dto';
 import { CreateDictItemDto } from './dto/create-dict-item.dto';
@@ -57,10 +54,7 @@ export class DictController {
   @Post('types')
   @RequirePermission('dict:create', 'dict:*')
   @ApiOperation({ summary: '创建字典类型' })
-  async createType(
-    @Body() dto: CreateDictTypeDto,
-    @CurrentUser() cu: ICurrentUser,
-  ) {
+  async createType(@Body() dto: CreateDictTypeDto, @CurrentUser() cu: ICurrentUser) {
     return this.dictService.createType(dto, cu.id);
   }
 
@@ -99,10 +93,7 @@ export class DictController {
   @Delete('items/:id')
   @RequirePermission('dict:delete', 'dict:*')
   @ApiOperation({ summary: '软删字典项' })
-  async removeItem(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() cu: ICurrentUser,
-  ) {
+  async removeItem(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
     return this.dictService.removeItem(id, cu.id);
   }
 }

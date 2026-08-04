@@ -1,9 +1,4 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { BizException, BizCode } from '../exceptions/biz.exception';
 import { ICurrentUser } from '../decorators/user.decorator';
@@ -45,10 +40,7 @@ export class RolesGuard implements CanActivate {
     }
     const hit = required.some((r) => user.roles!.includes(r));
     if (!hit) {
-      throw new BizException(
-        BizCode.FORBIDDEN,
-        `需要角色 [${required.join(', ')}]`,
-      );
+      throw new BizException(BizCode.FORBIDDEN, `需要角色 [${required.join(', ')}]`);
     }
     return true;
   }

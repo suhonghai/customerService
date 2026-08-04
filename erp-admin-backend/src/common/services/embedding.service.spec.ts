@@ -2,10 +2,7 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { Subject } from 'rxjs';
 import OpenAI from 'openai';
 import { EmbeddingService } from './embedding.service';
-import {
-  AiConfigService,
-  type ActiveAiConfig,
-} from '../../modules/ai-config/ai-config.service';
+import { AiConfigService, type ActiveAiConfig } from '../../modules/ai-config/ai-config.service';
 
 /**
  * EmbeddingService 单元测试(Day 11)
@@ -130,9 +127,7 @@ describe('EmbeddingService', () => {
     await service.onModuleInit();
 
     expect(MockOpenAI).not.toHaveBeenCalled();
-    await expect(service.embed(['hello'])).rejects.toThrow(
-      /EmbeddingService 未初始化/,
-    );
+    await expect(service.embed(['hello'])).rejects.toThrow(/EmbeddingService 未初始化/);
   });
 
   it('onModuleInit:getActiveInternal 抛错 → fallback env,不冒泡', async () => {

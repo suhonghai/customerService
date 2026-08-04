@@ -52,9 +52,7 @@ export class StatsService {
       }),
     ]);
     const aiHitRate =
-      totalEnded > 0
-        ? Number(((totalEnded - escalatedEnded) / totalEnded).toFixed(3))
-        : 0;
+      totalEnded > 0 ? Number(((totalEnded - escalatedEnded) / totalEnded).toFixed(3)) : 0;
 
     // 4. 平均评分(取最近 100 条已评分的会话)
     const ratedSessions = await this.prisma.csSession.findMany({
@@ -65,10 +63,9 @@ export class StatsService {
     const avgRating =
       ratedSessions.length > 0
         ? Number(
-            (
-              ratedSessions.reduce((s, x) => s + (x.rating ?? 0), 0) /
-              ratedSessions.length
-            ).toFixed(2),
+            (ratedSessions.reduce((s, x) => s + (x.rating ?? 0), 0) / ratedSessions.length).toFixed(
+              2,
+            ),
           )
         : 0;
 
@@ -116,17 +113,14 @@ export class StatsService {
       for (const msgs of bySession.values()) {
         for (let i = 0; i < msgs.length - 1; i++) {
           if (msgs[i].role === 'user' && msgs[i + 1].role === 'assistant') {
-            totalResponseMs +=
-              msgs[i + 1].createdAt.getTime() - msgs[i].createdAt.getTime();
+            totalResponseMs += msgs[i + 1].createdAt.getTime() - msgs[i].createdAt.getTime();
             pairCount++;
           }
         }
       }
     }
     const avgResponseSeconds =
-      pairCount > 0
-        ? Math.round((totalResponseMs / pairCount / 1000) * 10) / 10
-        : 0;
+      pairCount > 0 ? Math.round((totalResponseMs / pairCount / 1000) * 10) / 10 : 0;
 
     return {
       sessionToday,
@@ -144,7 +138,9 @@ export class StatsService {
   //   每人:{agentId, agentName, ticketCount, avgResolveMinutes, ratingAvg}
   // ============================================================
   async agentPerformance(query: QueryAgentPerformanceDto) {
-    const start = query.startDate ? new Date(query.startDate) : dayjs().subtract(30, 'day').startOf('day').toDate();
+    const start = query.startDate
+      ? new Date(query.startDate)
+      : dayjs().subtract(30, 'day').startOf('day').toDate();
     const end = query.endDate ? new Date(query.endDate) : new Date();
 
     // 找所有角色 code in ['agent', 'agent_lead'] 的用户(可指定 agentId)
@@ -178,9 +174,7 @@ export class StatsService {
         },
         select: { id: true, createdAt: true, resolvedAt: true, status: true },
       });
-      const resolved = tickets.filter(
-        (t) => t.resolvedAt != null,
-      ) as Array<{
+      const resolved = tickets.filter((t) => t.resolvedAt != null) as Array<{
         id: number;
         createdAt: Date;
         resolvedAt: Date;
@@ -189,10 +183,7 @@ export class StatsService {
       const avgResolveMinutes =
         resolved.length > 0
           ? Math.round(
-              resolved.reduce(
-                (s, t) => s + (t.resolvedAt.getTime() - t.createdAt.getTime()),
-                0,
-              ) /
+              resolved.reduce((s, t) => s + (t.resolvedAt.getTime() - t.createdAt.getTime()), 0) /
                 resolved.length /
                 60000,
             )
@@ -205,12 +196,7 @@ export class StatsService {
       });
       const ratingAvg =
         sessions.length > 0
-          ? Number(
-              (
-                sessions.reduce((s, x) => s + (x.rating ?? 0), 0) /
-                sessions.length
-              ).toFixed(2),
-            )
+          ? Number((sessions.reduce((s, x) => s + (x.rating ?? 0), 0) / sessions.length).toFixed(2))
           : 0;
 
       results.push({
@@ -230,7 +216,9 @@ export class StatsService {
   //   每个 model:{modelCode, modelName, totalSessions, escalatedSessions, hitRate}
   // ============================================================
   async aiHitRate(query: QueryAiHitRateDto) {
-    const start = query.startDate ? new Date(query.startDate) : dayjs().subtract(30, 'day').startOf('day').toDate();
+    const start = query.startDate
+      ? new Date(query.startDate)
+      : dayjs().subtract(30, 'day').startOf('day').toDate();
     const end = query.endDate ? new Date(query.endDate) : new Date();
 
     const models = await this.prisma.aiModelConfig.findMany({
@@ -266,8 +254,7 @@ export class StatsService {
         modelName: m.name,
         totalSessions: total,
         escalatedSessions: escalated,
-        hitRate:
-          total > 0 ? Number(((total - escalated) / total).toFixed(3)) : 0,
+        hitRate: total > 0 ? Number(((total - escalated) / total).toFixed(3)) : 0,
       });
     }
 

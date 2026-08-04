@@ -16,21 +16,13 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as path from 'path';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiTags,
-  ApiConsumes,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiConsumes } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RequirePermission } from '../../common/decorators/permission.decorator';
 import { BizException, BizCode } from '../../common/exceptions/biz.exception';
-import {
-  CurrentUser,
-  ICurrentUser,
-} from '../../common/decorators/user.decorator';
+import { CurrentUser, ICurrentUser } from '../../common/decorators/user.decorator';
 import { FaqService } from './faq.service';
 import { FaqChromaService } from './faq-chroma.service';
 import { UploadFaqDto } from './dto/upload-faq.dto';
@@ -53,10 +45,7 @@ function fileFilter(
   const ext = path.extname(file.originalname).toLowerCase();
   if (!ALLOWED_EXT.has(ext)) {
     return cb(
-      new BizException(
-        BizCode.PARAM_MISSING,
-        `不支持的文件类型:${ext},仅允许 .md / .txt / .pdf`,
-      ),
+      new BizException(BizCode.PARAM_MISSING, `不支持的文件类型:${ext},仅允许 .md / .txt / .pdf`),
       false,
     );
   }
@@ -155,10 +144,7 @@ export class FaqController {
   @Put(':id')
   @RequirePermission('faq:update', 'faq:*')
   @ApiOperation({ summary: '更新 FAQ 元数据(title / category / tags / description)' })
-  async update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateFaqDto,
-  ) {
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateFaqDto) {
     return this.faqService.update(id, dto);
   }
 

@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ChromaClient, Collection } from 'chromadb';
 
 /**
@@ -45,13 +40,9 @@ export class FaqChromaService implements OnModuleInit, OnModuleDestroy {
         embeddingFunction: null,
         metadata: { 'hnsw:space': 'cosine' },
       });
-      this.logger.log(
-        `✅ Chroma ready: ${url} collection=${this.collectionName}`,
-      );
+      this.logger.log(`✅ Chroma ready: ${url} collection=${this.collectionName}`);
     } catch (e) {
-      this.logger.error(
-        `❌ Chroma init failed: ${(e as Error).message} — FAQ 写入会失败`,
-      );
+      this.logger.error(`❌ Chroma init failed: ${(e as Error).message} — FAQ 写入会失败`);
       // 不抛:服务可起,FAQ 写入时再 fail-fast
     }
   }
@@ -99,9 +90,7 @@ export class FaqChromaService implements OnModuleInit, OnModuleDestroy {
       chunkIndex: i,
     }));
     await col.add({ ids, documents: chunks, embeddings, metadatas });
-    this.logger.log(
-      `Chroma addChunks: docId=${docId} v=${version} chunks=${chunks.length}`,
-    );
+    this.logger.log(`Chroma addChunks: docId=${docId} v=${version} chunks=${chunks.length}`);
   }
 
   /**
@@ -116,14 +105,10 @@ export class FaqChromaService implements OnModuleInit, OnModuleDestroy {
           $and: [{ docId }, { version }],
         },
       });
-      this.logger.log(
-        `Chroma deleteByDocVersion: docId=${docId} v=${version}`,
-      );
+      this.logger.log(`Chroma deleteByDocVersion: docId=${docId} v=${version}`);
     } catch (e) {
       // 空 where 删 chromadb 可能报;无所谓,已删干净
-      this.logger.warn(
-        `Chroma deleteByDocVersion noop or error: ${(e as Error).message}`,
-      );
+      this.logger.warn(`Chroma deleteByDocVersion noop or error: ${(e as Error).message}`);
     }
   }
 
@@ -136,9 +121,7 @@ export class FaqChromaService implements OnModuleInit, OnModuleDestroy {
       await col.delete({ where: { docId } });
       this.logger.log(`Chroma deleteByDoc: docId=${docId}`);
     } catch (e) {
-      this.logger.warn(
-        `Chroma deleteByDoc noop or error: ${(e as Error).message}`,
-      );
+      this.logger.warn(`Chroma deleteByDoc noop or error: ${(e as Error).message}`);
     }
   }
 

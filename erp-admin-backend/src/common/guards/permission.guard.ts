@@ -1,9 +1,4 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { BizException, BizCode } from '../exceptions/biz.exception';
 import { ICurrentUser } from '../decorators/user.decorator';
@@ -53,10 +48,7 @@ export class PermissionGuard implements CanActivate {
     });
 
     if (!hit) {
-      throw new BizException(
-        BizCode.FORBIDDEN,
-        `需要权限 [${required.join(', ')}]`,
-      );
+      throw new BizException(BizCode.FORBIDDEN, `需要权限 [${required.join(', ')}]`);
     }
     return true;
   }

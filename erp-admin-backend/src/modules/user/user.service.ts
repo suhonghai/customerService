@@ -102,18 +102,16 @@ export class UserService {
           departmentId: dto.departmentId ?? null,
           status: 1,
           remark: dto.remark ?? null,
-          roles: dto.roleIds && dto.roleIds.length > 0
-            ? { create: dto.roleIds.map((roleId) => ({ roleId })) }
-            : undefined,
+          roles:
+            dto.roleIds && dto.roleIds.length > 0
+              ? { create: dto.roleIds.map((roleId) => ({ roleId })) }
+              : undefined,
         },
         include: { roles: { include: { role: true } } },
       });
       return this.toSafeUser(u);
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         const target = (e.meta?.target as string[]) ?? [];
         if (target.includes('username')) {
           throw new BizException(BizCode.USERNAME_EXISTS, '用户名已存在');
@@ -159,10 +157,7 @@ export class UserService {
       });
       return this.toSafeUser(u);
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.USERNAME_EXISTS, '邮箱已被占用');
       }
       throw e;

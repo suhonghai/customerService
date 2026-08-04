@@ -127,10 +127,7 @@ export class CsAuthService {
     return this.toPublic(customer);
   }
 
-  private async signAccessToken(
-    customerId: number,
-    email: string,
-  ): Promise<string> {
+  private async signAccessToken(customerId: number, email: string): Promise<string> {
     return this.jwtService.signAsync(
       { sub: customerId, email, type: 'cs_customer' },
       {

@@ -21,7 +21,10 @@ export class HealthResponseDto {
   @ApiProperty({ example: 1700000000000, description: 'unix ms' })
   timestamp!: number;
 
-  @ApiProperty({ type: 'object', additionalProperties: { $ref: '#/components/schemas/ServiceHealthDto' } })
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { $ref: '#/components/schemas/ServiceHealthDto' },
+  })
   services!: {
     mysql: ServiceHealthDto;
   };

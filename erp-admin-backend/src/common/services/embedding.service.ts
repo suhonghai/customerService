@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import OpenAI from 'openai';
 import { Subscription } from 'rxjs';
 import { AiConfigService, ActiveAiConfig } from '../../modules/ai-config/ai-config.service';
@@ -41,9 +36,7 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
   private subscription: Subscription | null = null;
   private initialized = false;
 
-  constructor(
-    private readonly aiConfigService: AiConfigService,
-  ) {}
+  constructor(private readonly aiConfigService: AiConfigService) {}
 
   /**
    * 启动时:
@@ -55,9 +48,7 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     this.subscription = this.aiConfigService.configChanged$.subscribe({
       next: (cfg) => {
         if (!cfg) {
-          this.logger.warn(
-            'configChanged$ emitted null (no active config),keep current client',
-          );
+          this.logger.warn('configChanged$ emitted null (no active config),keep current client');
           return;
         }
         try {
@@ -66,15 +57,11 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
             `热重载 OpenAI client: model=${this.currentConfig?.model} baseURL=${this.currentConfig?.baseURL ?? '(default)'}`,
           );
         } catch (e) {
-          this.logger.error(
-            `热重载 OpenAI client 失败: ${(e as Error).message}`,
-          );
+          this.logger.error(`热重载 OpenAI client 失败: ${(e as Error).message}`);
         }
       },
       error: (err) => {
-        this.logger.error(
-          `configChanged$ stream error: ${(err as Error).message}`,
-        );
+        this.logger.error(`configChanged$ stream error: ${(err as Error).message}`);
       },
     });
 
@@ -123,9 +110,7 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
         return;
       }
     } catch (e) {
-      this.logger.warn(
-        `启动拿不到 active ai-config(降级 env): ${(e as Error).message}`,
-      );
+      this.logger.warn(`启动拿不到 active ai-config(降级 env): ${(e as Error).message}`);
     }
 
     // 2) fallback env
@@ -136,9 +121,7 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
         model: process.env.EMBED_MODEL || DEFAULT_MODEL,
         baseURL: process.env.DASHSCOPE_BASE_URL || DEFAULT_BASE_URL,
       });
-      this.logger.log(
-        `启动 init from env fallback: model=${this.currentConfig?.model}`,
-      );
+      this.logger.log(`启动 init from env fallback: model=${this.currentConfig?.model}`);
     } else {
       this.logger.warn(
         'EmbeddingService 启动时无 active ai-config 且无 env fallback,embed() 调用将抛错直到后台配置生效',
@@ -197,9 +180,7 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
           }
           all.push(item.embedding);
         }
-        this.logger.log(
-          `embedded batch [${i}-${i + batch.length - 1}] / total=${texts.length}`,
-        );
+        this.logger.log(`embedded batch [${i}-${i + batch.length - 1}] / total=${texts.length}`);
       } catch (e) {
         this.logger.error(
           `embedding batch failed [${i}-${i + batch.length - 1}]: ${(e as Error).message}`,

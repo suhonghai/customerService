@@ -37,10 +37,7 @@ export class FileAuthGuard implements CanActivate {
     if (req.headers['x-internal-token']) {
       return this.checkInternal(req);
     }
-    if (
-      req.headers.authorization &&
-      req.headers.authorization.startsWith('Bearer ')
-    ) {
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
       // 委派给 nestjs-passport 的 AuthGuard('jwt')
       // 失败时它会抛 UnauthorizedException,我们 catch 转 BizException
       const guard = new (class extends AuthGuard('jwt') {
@@ -66,7 +63,12 @@ export class FileAuthGuard implements CanActivate {
     throw new BizException(BizCode.UNAUTHORIZED, '需要登录或 Internal Token');
   }
 
-  private checkInternal(req: { headers: Record<string, string>; ip?: string; socket?: { remoteAddress?: string }; connection?: { remoteAddress?: string } }): boolean {
+  private checkInternal(req: {
+    headers: Record<string, string>;
+    ip?: string;
+    socket?: { remoteAddress?: string };
+    connection?: { remoteAddress?: string };
+  }): boolean {
     const expected = process.env.INTERNAL_TOKEN;
     if (!expected) {
       throw new BizException(BizCode.SERVER_ERROR, 'INTERNAL_TOKEN 未配置');
@@ -81,10 +83,7 @@ export class FileAuthGuard implements CanActivate {
       (req.connection?.remoteAddress as string | undefined) ||
       'unknown';
     if (!VALID_INTERNAL_IPS.has(ip)) {
-      throw new BizException(
-        BizCode.REFRESH_EXPIRED,
-        `Internal API 仅允许本机访问,当前 IP: ${ip}`,
-      );
+      throw new BizException(BizCode.REFRESH_EXPIRED, `Internal API 仅允许本机访问,当前 IP: ${ip}`);
     }
     return true;
   }

@@ -53,9 +53,7 @@ export class AuditLogService {
         },
       });
     } catch (e) {
-      this.logger.error(
-        `audit_log 写入失败: ${e instanceof Error ? e.message : 'unknown'}`,
-      );
+      this.logger.error(`audit_log 写入失败: ${e instanceof Error ? e.message : 'unknown'}`);
     }
   }
 

@@ -26,9 +26,7 @@ import { QueryAiPromptTemplateDto } from './dto/query-ai-prompt-template.dto';
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
 @Controller('ai-prompt-templates')
 export class AiPromptTemplateController {
-  constructor(
-    private readonly aiPromptTemplateService: AiPromptTemplateService,
-  ) {}
+  constructor(private readonly aiPromptTemplateService: AiPromptTemplateService) {}
 
   @Get()
   @RequirePermission('ai-config:view', 'ai-config:*')
@@ -55,10 +53,7 @@ export class AiPromptTemplateController {
   @Put(':id')
   @RequirePermission('ai-config:update', 'ai-config:*')
   @ApiOperation({ summary: '更新 Prompt 模板' })
-  async update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateAiPromptTemplateDto,
-  ) {
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateAiPromptTemplateDto) {
     return this.aiPromptTemplateService.update(id, dto);
   }
 

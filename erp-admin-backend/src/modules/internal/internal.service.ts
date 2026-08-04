@@ -164,33 +164,35 @@ export class InternalService {
     const visitorName = dto.visitorName ?? `访客-${dto.visitorId.slice(0, 8)}`;
     const channel = dto.channel ?? 1;
 
-    return this.prisma.csSession.upsert({
-      where: { sessionKey: dto.sessionKey },
-      update: {
-        // 已有会话:同步元数据(messageCount 由 appendMessage 维护)
-        ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
-        ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
-        ...(dto.title ? { visitorName: dto.title } : {}),
-      },
-      create: {
-        sessionKey: dto.sessionKey,
-        visitorId: dto.visitorId,
-        visitorName,
-        channel,
-        aiModelCode: dto.aiModelCode ?? null,
-        // 新会话:messageCount = 0,等第一条 appendMessage 才 +1
-        messageCount: 0,
-        ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
-        ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
-        ...(dto.title ? { visitorName: dto.title } : {}),
-      },
-    }).then(async (session) => {
-      // cs-round-002:被动触发 reaper,fire-and-forget(不阻塞主路径)
-      this.reapStaleStreaming().catch((e) =>
-        this.logger.warn(`upsertSession 后台 reaper 失败: ${(e as Error).message}`),
-      );
-      return session;
-    });
+    return this.prisma.csSession
+      .upsert({
+        where: { sessionKey: dto.sessionKey },
+        update: {
+          // 已有会话:同步元数据(messageCount 由 appendMessage 维护)
+          ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
+          ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+          ...(dto.title ? { visitorName: dto.title } : {}),
+        },
+        create: {
+          sessionKey: dto.sessionKey,
+          visitorId: dto.visitorId,
+          visitorName,
+          channel,
+          aiModelCode: dto.aiModelCode ?? null,
+          // 新会话:messageCount = 0,等第一条 appendMessage 才 +1
+          messageCount: 0,
+          ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
+          ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+          ...(dto.title ? { visitorName: dto.title } : {}),
+        },
+      })
+      .then(async (session) => {
+        // cs-round-002:被动触发 reaper,fire-and-forget(不阻塞主路径)
+        this.reapStaleStreaming().catch((e) =>
+          this.logger.warn(`upsertSession 后台 reaper 失败: ${(e as Error).message}`),
+        );
+        return session;
+      });
   }
 
   // ============================================================
@@ -659,14 +661,12 @@ export class InternalService {
     // emit WS 给 session room
     for (const m of stale) {
       try {
-        this.realtime.server
-          .to(`session:${m.sessionId}`)
-          .emit('message_status', {
-            messageId: m.id,
-            sessionId: m.sessionId,
-            status: 4,
-            reason: 'stale-streaming-reaped',
-          });
+        this.realtime.server.to(`session:${m.sessionId}`).emit('message_status', {
+          messageId: m.id,
+          sessionId: m.sessionId,
+          status: 4,
+          reason: 'stale-streaming-reaped',
+        });
       } catch (e) {
         this.logger.warn(
           `reap emit 失败 session=${m.sessionId} msg=${m.id}: ${(e as Error).message}`,

@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Inject,
-  Logger,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import * as path from 'path';
@@ -163,11 +158,7 @@ export class FaqService {
   //   - 创建文档 + 第一版本(status=1 待审核)
   //   - SHA256 校验重复
   // ============================================================
-  async upload(
-    file: Express.Multer.File,
-    dto: UploadFaqDto,
-    uploaderId: number,
-  ) {
+  async upload(file: Express.Multer.File, dto: UploadFaqDto, uploaderId: number) {
     this.validateFile(file);
     const checksum = this.sha256(file.buffer);
 
@@ -183,11 +174,7 @@ export class FaqService {
     }
 
     // 落盘
-    const storagePath = await this.fileStorage.save(
-      file.buffer,
-      file.originalname,
-      'faq',
-    );
+    const storagePath = await this.fileStorage.save(file.buffer, file.originalname, 'faq');
 
     // 创建文档 + 第一版本(事务)
     const result = await this.prisma.$transaction(async (tx) => {
@@ -269,11 +256,7 @@ export class FaqService {
   //   - 新版本,version = max + 1
   //   - status = 1 待审核
   // ============================================================
-  async uploadVersion(
-    id: number,
-    file: Express.Multer.File,
-    dto: UploadFaqDto,
-  ) {
+  async uploadVersion(id: number, file: Express.Multer.File, dto: UploadFaqDto) {
     this.validateFile(file);
     const doc = await this.prisma.faqDocument.findUnique({ where: { id } });
     if (!doc || doc.deletedAt) {
@@ -290,11 +273,7 @@ export class FaqService {
       );
     }
 
-    const storagePath = await this.fileStorage.save(
-      file.buffer,
-      file.originalname,
-      'faq',
-    );
+    const storagePath = await this.fileStorage.save(file.buffer, file.originalname, 'faq');
 
     const result = await this.prisma.$transaction(async (tx) => {
       // 取当前最大 version
@@ -362,12 +341,7 @@ export class FaqService {
   //   - status=2 发布 → 切片 → embed → Chroma 写入
   //   - status=3 下线 → Chroma 删除
   // ============================================================
-  async review(
-    id: number,
-    dto: ReviewFaqDto,
-    reviewerId: number,
-    reviewerName: string,
-  ) {
+  async review(id: number, dto: ReviewFaqDto, reviewerId: number, reviewerName: string) {
     const doc = await this.prisma.faqDocument.findUnique({ where: { id } });
     if (!doc || doc.deletedAt) {
       throw new BizException(BizCode.FAQ_NOT_FOUND, 'FAQ 文档不存在');
@@ -388,16 +362,10 @@ export class FaqService {
     // - 1 待审核 → 2 发布 / 3 下线(正常审核)
     // - 2 已发布 → 3 下线(撤回发布,Day 5 允许这种操作)
     if (version.status === 2 && dto.status !== 3) {
-      throw new BizException(
-        BizCode.STATE_NOT_ALLOW,
-        `已发布版本只能下线(status=3),不能改回其它`,
-      );
+      throw new BizException(BizCode.STATE_NOT_ALLOW, `已发布版本只能下线(status=3),不能改回其它`);
     }
     if (version.status === 1 && dto.status === 3) {
-      throw new BizException(
-        BizCode.STATE_NOT_ALLOW,
-        `待审核版本不能直接下线,需先发布或删除`,
-      );
+      throw new BizException(BizCode.STATE_NOT_ALLOW, `待审核版本不能直接下线,需先发布或删除`);
     }
     if (dto.status !== 2 && dto.status !== 3) {
       throw new BizException(BizCode.PARAM_ERROR, 'status 必须为 2/3');
@@ -429,10 +397,7 @@ export class FaqService {
         this.logger.error(
           `Chroma 入库失败: docId=${id} v=${version.version}: ${(e as Error).message}`,
         );
-        throw new BizException(
-          BizCode.SERVER_ERROR,
-          `Chroma 入库失败:${(e as Error).message}`,
-        );
+        throw new BizException(BizCode.SERVER_ERROR, `Chroma 入库失败:${(e as Error).message}`);
       }
     } else if (dto.status === 3) {
       // 下线:Chroma 删除
@@ -440,9 +405,7 @@ export class FaqService {
         await this.chroma.deleteByDocVersion(id, version.version);
         chunkCount = 0;
       } catch (e) {
-        this.logger.warn(
-          `Chroma 删除失败(继续审核): ${(e as Error).message}`,
-        );
+        this.logger.warn(`Chroma 删除失败(继续审核): ${(e as Error).message}`);
         chunkCount = 0;
       }
     }
@@ -504,9 +467,7 @@ export class FaqService {
     try {
       await this.chroma.deleteByDoc(id);
     } catch (e) {
-      this.logger.warn(
-        `Chroma deleteByDoc failed for docId=${id}: ${(e as Error).message}`,
-      );
+      this.logger.warn(`Chroma deleteByDoc failed for docId=${id}: ${(e as Error).message}`);
     }
     await this.prisma.faqDocument.delete({ where: { id } });
     return { id };

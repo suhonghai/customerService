@@ -15,10 +15,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RequirePermission } from '../../common/decorators/permission.decorator';
-import {
-  CurrentUser,
-  ICurrentUser,
-} from '../../common/decorators/user.decorator';
+import { CurrentUser, ICurrentUser } from '../../common/decorators/user.decorator';
 import { TicketService } from './ticket.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { AssignTicketDto } from './dto/assign-ticket.dto';
@@ -60,10 +57,7 @@ export class TicketController {
   @Get(':id')
   @RequirePermission('ticket:view', 'ticket:*')
   @ApiOperation({ summary: '工单详情(含 logs 数组)' })
-  async getById(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() cu: ICurrentUser,
-  ) {
+  async getById(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
     return this.ticketService.getById(id, cu.id);
   }
 
@@ -127,10 +121,7 @@ export class TicketController {
   @Get(':id/logs')
   @RequirePermission('ticket:view', 'ticket:*')
   @ApiOperation({ summary: '工单流转日志' })
-  async getLogs(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() cu: ICurrentUser,
-  ) {
+  async getLogs(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
     return this.ticketService.getLogs(id, cu.id);
   }
 }

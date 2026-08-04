@@ -18,10 +18,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RequirePermission } from '../../common/decorators/permission.decorator';
-import {
-  CurrentUser,
-  ICurrentUser,
-} from '../../common/decorators/user.decorator';
+import { CurrentUser, ICurrentUser } from '../../common/decorators/user.decorator';
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -61,10 +58,7 @@ export class OrderController {
     const csv = await this.orderService.exportCsv(query, cu.id);
     const filename = `orders-${dayjs().format('YYYYMMDD-HHmmss')}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`,
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);
   }
 
@@ -74,10 +68,7 @@ export class OrderController {
   @Get(':id')
   @RequirePermission('order:view', 'order:*')
   @ApiOperation({ summary: '订单详情(含 items 数组)' })
-  async getById(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() cu: ICurrentUser,
-  ) {
+  async getById(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
     return this.orderService.getById(id, cu.id);
   }
 

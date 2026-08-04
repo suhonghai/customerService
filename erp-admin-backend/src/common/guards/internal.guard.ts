@@ -73,9 +73,13 @@ export class InternalGuard implements CanActivate {
     cidrs: { contains: (ip: string) => boolean; raw: string }[];
   } {
     const raw = process.env.ALLOWED_INTERNAL_IPS;
-    const entries = (raw && raw.trim().length > 0
-      ? raw.split(',').map((s) => s.trim()).filter(Boolean)
-      : InternalGuard.DEFAULT_ALLOWED_ENTRIES
+    const entries = (
+      raw && raw.trim().length > 0
+        ? raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : InternalGuard.DEFAULT_ALLOWED_ENTRIES
     ).slice();
 
     const exactIps = new Set<string>();
@@ -106,9 +110,7 @@ export class InternalGuard implements CanActivate {
     const prefix = Number(prefixStr);
     if (!base || Number.isNaN(prefix) || prefix < 0 || prefix > 32) {
       // eslint-disable-next-line no-console
-      console.warn(
-        `[InternalGuard] 跳过非法 CIDR 条目: "${entry}"(期望格式 a.b.c.d/n, 0<=n<=32)`,
-      );
+      console.warn(`[InternalGuard] 跳过非法 CIDR 条目: "${entry}"(期望格式 a.b.c.d/n, 0<=n<=32)`);
       return null;
     }
 
@@ -134,7 +136,7 @@ export class InternalGuard implements CanActivate {
       contains: (ip: string): boolean => {
         const n = InternalGuard.ipv4ToNumber(ip);
         if (n === null) return false;
-        return ((n & mask) >>> 0) === network;
+        return (n & mask) >>> 0 === network;
       },
     };
   }
@@ -159,10 +161,7 @@ export class InternalGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const expected = process.env.INTERNAL_TOKEN;
     if (!expected) {
-      throw new BizException(
-        BizCode.SERVER_ERROR,
-        'INTERNAL_TOKEN 未配置,InternalGuard 拒绝放行',
-      );
+      throw new BizException(BizCode.SERVER_ERROR, 'INTERNAL_TOKEN 未配置,InternalGuard 拒绝放行');
     }
 
     const req = context.switchToHttp().getRequest();

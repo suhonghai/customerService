@@ -3,11 +3,7 @@ import { Subject, Observable } from 'rxjs';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BizException, BizCode } from '../../common/exceptions/biz.exception';
-import {
-  encryptApiKey,
-  decryptApiKey,
-  maskApiKey,
-} from '../../common/utils/crypto.util';
+import { encryptApiKey, decryptApiKey, maskApiKey } from '../../common/utils/crypto.util';
 import { CreateAiConfigDto } from './dto/create-ai-config.dto';
 import { UpdateAiConfigDto } from './dto/update-ai-config.dto';
 import { QueryAiConfigDto } from './dto/query-ai-config.dto';
@@ -62,8 +58,7 @@ export class AiConfigService {
    * - emit(null):没有 active(或被删了),订阅者按 fallback 处理
    */
   private readonly _configChanged$ = new Subject<ActiveAiConfig | null>();
-  readonly configChanged$: Observable<ActiveAiConfig | null> =
-    this._configChanged$.asObservable();
+  readonly configChanged$: Observable<ActiveAiConfig | null> = this._configChanged$.asObservable();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -101,9 +96,7 @@ export class AiConfigService {
         masked = maskApiKey(plain);
       } catch (e) {
         // 解密失败(比如密钥换了)→ 只显示 '****'
-        this.logger.warn(
-          `decrypt failed for config id=${row.id}: ${(e as Error).message}`,
-        );
+        this.logger.warn(`decrypt failed for config id=${row.id}: ${(e as Error).message}`);
       }
     }
     return { ...row, apiKey: masked };
@@ -263,10 +256,7 @@ export class AiConfigService {
       await this.emitConfigChanged();
       return this.toSafeResponse(row);
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.USERNAME_EXISTS, 'AI 配置 code 已存在');
       }
       throw e;
@@ -312,10 +302,7 @@ export class AiConfigService {
       await this.emitConfigChanged();
       return this.toSafeResponse(row);
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.USERNAME_EXISTS, 'AI 配置 code 已存在');
       }
       throw e;
@@ -337,10 +324,7 @@ export class AiConfigService {
         where: { deletedAt: null, status: 1, NOT: { id } },
       });
       if (otherActive === 0) {
-        throw new BizException(
-          BizCode.STATE_NOT_ALLOW,
-          '唯一默认配置不可删除,请先设其他为默认',
-        );
+        throw new BizException(BizCode.STATE_NOT_ALLOW, '唯一默认配置不可删除,请先设其他为默认');
       }
     }
     await this.prisma.aiModelConfig.delete({ where: { id } });
@@ -388,14 +372,10 @@ export class AiConfigService {
           `ai-config changed → broadcast active config id=${active.id} model=${active.modelId}`,
         );
       } else {
-        this.logger.log(
-          `ai-config changed → no active config (broadcasted null to subscribers)`,
-        );
+        this.logger.log(`ai-config changed → no active config (broadcasted null to subscribers)`);
       }
     } catch (e) {
-      this.logger.error(
-        `emitConfigChanged failed: ${(e as Error).message}`,
-      );
+      this.logger.error(`emitConfigChanged failed: ${(e as Error).message}`);
     }
   }
 
@@ -439,9 +419,7 @@ export class AiConfigService {
       usage = result.usage;
     } catch (e) {
       errMsg = e instanceof Error ? e.message : 'unknown';
-      this.logger.warn(
-        `AI test failed for config id=${id}: ${errMsg}`,
-      );
+      this.logger.warn(`AI test failed for config id=${id}: ${errMsg}`);
       // 不抛,返 200 + 错误信息,前端可控
     }
     const latencyMs = Date.now() - start;

@@ -137,11 +137,7 @@ export class SessionService {
   // ============================================================
   // GET /api/sessions/:id/messages — 消息分页
   // ============================================================
-  async findMessages(
-    id: number,
-    query: QueryMessagesDto,
-    currentUserId: number,
-  ) {
+  async findMessages(id: number, query: QueryMessagesDto, currentUserId: number) {
     // 1. 先校验 session 存在 + DataScope
     const session = await this.prisma.csSession.findFirst({
       where: { id },
@@ -151,11 +147,7 @@ export class SessionService {
       throw new BizException(BizCode.BIZ_ERROR, '会话不存在');
     }
     const scope = await this.dataScope.getUserDataScope(currentUserId);
-    const inScope = await this.isInSessionScope(
-      { userId: session.userId },
-      currentUserId,
-      scope,
-    );
+    const inScope = await this.isInSessionScope({ userId: session.userId }, currentUserId, scope);
     if (!inScope) {
       throw new BizException(BizCode.BIZ_ERROR, '会话不存在');
     }
@@ -204,11 +196,7 @@ export class SessionService {
     }
     // DataScope 校验(超管 / 本部门 / 本人 才允许删)
     const scope = await this.dataScope.getUserDataScope(currentUserId);
-    const inScope = await this.isInSessionScope(
-      { userId: exist.userId },
-      currentUserId,
-      scope,
-    );
+    const inScope = await this.isInSessionScope({ userId: exist.userId }, currentUserId, scope);
     if (!inScope) {
       throw new BizException(BizCode.BIZ_ERROR, '会话不存在');
     }
@@ -357,9 +345,7 @@ export class SessionService {
         where: { id: session.userId },
         select: { departmentId: true },
       });
-      return (
-        u?.departmentId != null && scope.customDeptIds.includes(u.departmentId)
-      );
+      return u?.departmentId != null && scope.customDeptIds.includes(u.departmentId);
     }
     return false;
   }

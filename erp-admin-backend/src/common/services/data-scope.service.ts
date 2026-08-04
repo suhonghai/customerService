@@ -83,11 +83,7 @@ export class DataScopeService {
    *
    * 注意:Prisma 中间件会自动加 deletedAt: null,无需重复
    */
-  applyUserWhere(
-    where: UserListWhere,
-    currentUserId: number,
-    scope: DataScopeInfo,
-  ): void {
+  applyUserWhere(where: UserListWhere, currentUserId: number, scope: DataScopeInfo): void {
     if (scope.scope === 1) {
       // 不加
     } else if (scope.scope === 2) {

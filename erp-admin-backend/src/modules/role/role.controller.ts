@@ -59,10 +59,7 @@ export class RoleController {
   @Roles('super_admin')
   @RequirePermission('role:update')
   @ApiOperation({ summary: '更新角色' })
-  async update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateRoleDto,
-  ) {
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateRoleDto) {
     return this.roleService.update(id, dto);
   }
 
@@ -79,10 +76,7 @@ export class RoleController {
   @Roles('super_admin')
   @RequirePermission('role:assign-menu')
   @ApiOperation({ summary: '分配菜单' })
-  async assignMenus(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: AssignMenusDto,
-  ) {
+  async assignMenus(@Param('id', ParseIntPipe) id: number, @Body() dto: AssignMenusDto) {
     return this.roleService.assignMenus(id, dto);
   }
 

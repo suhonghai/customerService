@@ -56,10 +56,7 @@ export class MenuController {
   @Roles('super_admin')
   @RequirePermission('menu:update')
   @ApiOperation({ summary: '更新菜单' })
-  async update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateMenuDto,
-  ) {
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateMenuDto) {
     return this.menuService.update(id, dto);
   }
 

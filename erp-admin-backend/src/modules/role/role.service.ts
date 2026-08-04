@@ -67,18 +67,12 @@ export class RoleService {
   async create(dto: CreateRoleDto) {
     // 校验 dataScope=4 时 customDeptIds 必填
     if (dto.dataScope === 4 && !dto.customDeptIds) {
-      throw new BizException(
-        BizCode.PARAM_ERROR,
-        'dataScope=4 自定义时,customDeptIds 必填',
-      );
+      throw new BizException(BizCode.PARAM_ERROR, 'dataScope=4 自定义时,customDeptIds 必填');
     }
     if (dto.customDeptIds) {
       // 校验格式
       if (!/^\d+(,\d+)*$/.test(dto.customDeptIds)) {
-        throw new BizException(
-          BizCode.PARAM_ERROR,
-          'customDeptIds 格式错误,需为逗号分隔数字',
-        );
+        throw new BizException(BizCode.PARAM_ERROR, 'customDeptIds 格式错误,需为逗号分隔数字');
       }
     }
 
@@ -96,10 +90,7 @@ export class RoleService {
       });
       return role;
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.USERNAME_EXISTS, '角色 code 已存在');
       }
       throw e;
@@ -119,16 +110,10 @@ export class RoleService {
     if (newDataScope === 4) {
       const newCustom = dto.customDeptIds ?? exist.customDeptIds;
       if (!newCustom) {
-        throw new BizException(
-          BizCode.PARAM_ERROR,
-          'dataScope=4 自定义时,customDeptIds 必填',
-        );
+        throw new BizException(BizCode.PARAM_ERROR, 'dataScope=4 自定义时,customDeptIds 必填');
       }
       if (!/^\d+(,\d+)*$/.test(newCustom)) {
-        throw new BizException(
-          BizCode.PARAM_ERROR,
-          'customDeptIds 格式错误',
-        );
+        throw new BizException(BizCode.PARAM_ERROR, 'customDeptIds 格式错误');
       }
     }
     try {
@@ -145,10 +130,7 @@ export class RoleService {
         },
       });
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.USERNAME_EXISTS, '角色 code 已存在');
       }
       throw e;
@@ -171,10 +153,7 @@ export class RoleService {
       throw new BizException(BizCode.STATE_NOT_ALLOW, '内置角色不可删除');
     }
     if (role.users.length > 0) {
-      throw new BizException(
-        BizCode.STATE_NOT_ALLOW,
-        '该角色仍被用户绑定,无法删除',
-      );
+      throw new BizException(BizCode.STATE_NOT_ALLOW, '该角色仍被用户绑定,无法删除');
     }
     // 软删:Prisma 中间件自动转 update deletedAt
     await this.prisma.role.delete({ where: { id } });
@@ -196,10 +175,7 @@ export class RoleService {
         where: { id: { in: dto.menuIds } },
       });
       if (count !== dto.menuIds.length) {
-        throw new BizException(
-          BizCode.PARAM_ERROR,
-          'menuIds 包含不存在的菜单',
-        );
+        throw new BizException(BizCode.PARAM_ERROR, 'menuIds 包含不存在的菜单');
       }
     }
     // 事务:删旧 + 插新

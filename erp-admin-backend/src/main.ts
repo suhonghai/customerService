@@ -52,9 +52,7 @@ async function bootstrap() {
   // 切到 nestjs-pino 异步结构化日志(替代 console + 同步写文件)
   // - 控制台:pretty(开发) / JSON(生产)
   // - 文件:开发可写,生产写 /data/logs/erp-admin/app.log
-  app.useLogger(
-    app.get(PinoLogger),
-  );
+  app.useLogger(app.get(PinoLogger));
 
   // cookie-parser middleware(让 passport-jwt 能从 cookie 抽 access_token)
   // ai-cs-demo + curl 走 cookie,erp-admin-frontend 走 header,顺序:cookie 优先 → header 兜底
@@ -64,7 +62,9 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // CORS
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3001')
+  const allowedOrigins = (
+    process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3001'
+  )
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -102,10 +102,7 @@ async function bootstrap() {
     .setTitle('ERP Admin API')
     .setDescription('W11 ERP 运营后台 API 文档')
     .setVersion('0.1.0')
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'access-token',
-    )
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);

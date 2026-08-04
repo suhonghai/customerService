@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -32,9 +27,7 @@ export class TransformInterceptor<T = unknown> implements NestInterceptor<T, Sta
     const req = context.switchToHttp().getRequest();
     // 透传已有 traceId,没有就生成
     const traceId =
-      (req.headers['x-trace-id'] as string) ||
-      (req.headers['x-request-id'] as string) ||
-      uuidv4();
+      (req.headers['x-trace-id'] as string) || (req.headers['x-request-id'] as string) || uuidv4();
     // 挂到 res 让客户端能拿到
     const res = context.switchToHttp().getResponse();
     res.setHeader('x-trace-id', traceId);

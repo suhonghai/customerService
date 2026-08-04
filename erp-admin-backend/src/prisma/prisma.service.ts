@@ -38,9 +38,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$connect();
     this.logger.log('✅ Prisma connected to MySQL');
     this.useSoftDelete();
-    this.logger.log(
-      `🛡️  Soft delete middleware active for ${SOFT_DELETE_MODELS.size} models`,
-    );
+    this.logger.log(`🛡️  Soft delete middleware active for ${SOFT_DELETE_MODELS.size} models`);
   }
 
   async onModuleDestroy() {
@@ -62,44 +60,49 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const client: any = this;
 
-    client.$use(async (params: Prisma.MiddlewareParams, next: (p: Prisma.MiddlewareParams) => Promise<unknown>) => {
-      if (!params.model || !SOFT_DELETE_MODELS.has(params.model as Prisma.ModelName)) {
-        return next(params);
-      }
+    client.$use(
+      async (
+        params: Prisma.MiddlewareParams,
+        next: (p: Prisma.MiddlewareParams) => Promise<unknown>,
+      ) => {
+        if (!params.model || !SOFT_DELETE_MODELS.has(params.model as Prisma.ModelName)) {
+          return next(params);
+        }
 
-      const readActions = new Set([
-        'findUnique',
-        'findUniqueOrThrow',
-        'findFirst',
-        'findFirstOrThrow',
-        'findMany',
-        'count',
-        'aggregate',
-        'groupBy',
-      ]);
+        const readActions = new Set([
+          'findUnique',
+          'findUniqueOrThrow',
+          'findFirst',
+          'findFirstOrThrow',
+          'findMany',
+          'count',
+          'aggregate',
+          'groupBy',
+        ]);
 
-      if (readActions.has(params.action)) {
-        params.args = params.args ?? {};
-        params.args.where = this.mergeDeletedAtFilter(params.args.where);
-      }
-
-      if (params.action === 'delete') {
-        params.action = 'update';
-        params.args = params.args ?? {};
-        params.args.data = { ...(params.args.data ?? {}), deletedAt: new Date() };
-      }
-
-      if (params.action === 'deleteMany') {
-        params.action = 'updateMany';
-        if (params.args && params.args.where) {
+        if (readActions.has(params.action)) {
+          params.args = params.args ?? {};
           params.args.where = this.mergeDeletedAtFilter(params.args.where);
         }
-        params.args = params.args ?? {};
-        params.args.data = { ...(params.args.data ?? {}), deletedAt: new Date() };
-      }
 
-      return next(params);
-    });
+        if (params.action === 'delete') {
+          params.action = 'update';
+          params.args = params.args ?? {};
+          params.args.data = { ...(params.args.data ?? {}), deletedAt: new Date() };
+        }
+
+        if (params.action === 'deleteMany') {
+          params.action = 'updateMany';
+          if (params.args && params.args.where) {
+            params.args.where = this.mergeDeletedAtFilter(params.args.where);
+          }
+          params.args = params.args ?? {};
+          params.args.data = { ...(params.args.data ?? {}), deletedAt: new Date() };
+        }
+
+        return next(params);
+      },
+    );
   }
 
   /**

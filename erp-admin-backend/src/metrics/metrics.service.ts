@@ -1,10 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  Registry,
-  Counter,
-  Histogram,
-  collectDefaultMetrics,
-} from 'prom-client';
+import { Registry, Counter, Histogram, collectDefaultMetrics } from 'prom-client';
 
 /**
  * MetricsService(W11 Day 10)
@@ -48,12 +43,7 @@ export class MetricsService {
   /**
    * 记录一次 HTTP 请求。供 MetricsInterceptor 在 next.handle() 完成后调用。
    */
-  recordHttpRequest(
-    method: string,
-    route: string,
-    statusCode: number,
-    durationSec: number,
-  ): void {
+  recordHttpRequest(method: string, route: string, statusCode: number, durationSec: number): void {
     const labels = {
       method,
       route,

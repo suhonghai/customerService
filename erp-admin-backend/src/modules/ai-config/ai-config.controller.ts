@@ -62,10 +62,7 @@ export class AiConfigController {
   @Put(':id')
   @RequirePermission('ai-config:update', 'ai-config:*')
   @ApiOperation({ summary: '更新 AI 配置(apiKey 传了则重加密)' })
-  async update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateAiConfigDto,
-  ) {
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateAiConfigDto) {
     return this.aiConfigService.update(id, dto);
   }
 
@@ -80,10 +77,7 @@ export class AiConfigController {
   @HttpCode(200)
   @RequirePermission('ai-config:test', 'ai-config:*')
   @ApiOperation({ summary: '测试 AI 配置连通性(实调 LLM)' })
-  async test(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: TestAiConfigDto,
-  ) {
+  async test(@Param('id', ParseIntPipe) id: number, @Body() dto: TestAiConfigDto) {
     return this.aiConfigService.test(id, dto);
   }
 

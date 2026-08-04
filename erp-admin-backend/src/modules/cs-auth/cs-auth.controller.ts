@@ -63,9 +63,7 @@ export class CsAuthController {
   @Post('logout')
   @HttpCode(200)
   @ApiOperation({ summary: 'C 端登出(清 cs_access_token cookie)' })
-  async logout(
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<{ success: true }> {
+  async logout(@Res({ passthrough: true }) res: Response): Promise<{ success: true }> {
     res.clearCookie(CS_ACCESS_TOKEN_COOKIE, { path: '/' });
     return { success: true };
   }

@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Get,
-  Inject,
-  Logger,
-  Param,
-  Req,
-  Res,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Inject, Logger, Param, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { createReadStream, existsSync } from 'fs';

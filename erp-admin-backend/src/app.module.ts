@@ -70,9 +70,7 @@ const logFile = path.join(logDir, 'erp-admin-app.log');
         CHROMA_COLLECTION: Joi.string().default('erp_faq'),
         ALLOWED_INTERNAL_IPS: Joi.string().default('127.0.0.1,::1'),
         ALLOWED_ORIGINS: Joi.string().required(),
-        LOG_LEVEL: Joi.string()
-          .valid('debug', 'info', 'warn', 'error')
-          .default('info'),
+        LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error').default('info'),
       }),
       validationOptions: { abortEarly: false, allowUnknown: true },
     }),

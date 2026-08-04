@@ -113,9 +113,7 @@ describe('InternalGuard', () => {
     delete process.env.ALLOWED_INTERNAL_IPS;
     const InternalGuard = loadGuard();
     const guard = new InternalGuard();
-    expect(() => guard.canActivate(buildCtx('8.8.8.8', TOKEN))).toThrow(
-      /不允许该 IP 访问/,
-    );
+    expect(() => guard.canActivate(buildCtx('8.8.8.8', TOKEN))).toThrow(/不允许该 IP 访问/);
   });
 
   it('env 自定义 CIDR 10.0.0.0/24:10.0.0.5 放行、10.0.1.5 拒绝', () => {
@@ -124,9 +122,7 @@ describe('InternalGuard', () => {
     const InternalGuard = loadGuard();
     const guard = new InternalGuard();
     expect(() => guard.canActivate(buildCtx('10.0.0.5', TOKEN))).not.toThrow();
-    expect(() => guard.canActivate(buildCtx('10.0.1.5', TOKEN))).toThrow(
-      /不允许该 IP 访问/,
-    );
+    expect(() => guard.canActivate(buildCtx('10.0.1.5', TOKEN))).toThrow(/不允许该 IP 访问/);
   });
 
   it('env 自定义精确 IP 列表生效', () => {
@@ -135,21 +131,16 @@ describe('InternalGuard', () => {
     const InternalGuard = loadGuard();
     const guard = new InternalGuard();
     expect(() => guard.canActivate(buildCtx('1.2.3.4', TOKEN))).not.toThrow();
-    expect(() => guard.canActivate(buildCtx('172.31.0.5', TOKEN))).toThrow(
-      /不允许该 IP 访问/,
-    );
+    expect(() => guard.canActivate(buildCtx('172.31.0.5', TOKEN))).toThrow(/不允许该 IP 访问/);
   });
 
   it('非法 IPv4 与非法 CIDR 被跳过,不阻塞其它合法条目', () => {
     process.env.INTERNAL_TOKEN = TOKEN;
-    process.env.ALLOWED_INTERNAL_IPS =
-      '127.0.0.1,not-an-ip,300.0.0.1,10.0.0.0/99';
+    process.env.ALLOWED_INTERNAL_IPS = '127.0.0.1,not-an-ip,300.0.0.1,10.0.0.0/99';
     const InternalGuard = loadGuard();
     const guard = new InternalGuard();
     // 合法条目仍生效:127.0.0.1 放行;172.31.0.5 不在自定义白名单 → 拒绝
     expect(() => guard.canActivate(buildCtx('127.0.0.1', TOKEN))).not.toThrow();
-    expect(() => guard.canActivate(buildCtx('172.31.0.5', TOKEN))).toThrow(
-      /不允许该 IP 访问/,
-    );
+    expect(() => guard.canActivate(buildCtx('172.31.0.5', TOKEN))).toThrow(/不允许该 IP 访问/);
   });
 });

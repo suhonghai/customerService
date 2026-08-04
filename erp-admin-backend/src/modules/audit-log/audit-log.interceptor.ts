@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
 import { Observable, tap, catchError, throwError } from 'rxjs';
 import { Request } from 'express';
 import { AuditLogService } from './audit-log.service';
@@ -83,7 +77,10 @@ export class AuditInterceptor implements NestInterceptor {
 
   private getModuleFromPath(path: string): string {
     // /api/auth/login → auth; /api/users → users
-    const segs = path.replace(/^\/api\//, '').split('/').filter(Boolean);
+    const segs = path
+      .replace(/^\/api\//, '')
+      .split('/')
+      .filter(Boolean);
     return segs[0] ?? 'unknown';
   }
 

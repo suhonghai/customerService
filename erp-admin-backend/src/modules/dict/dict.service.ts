@@ -128,11 +128,7 @@ export class DictService {
   // ============================================================
   // POST /api/dicts/:code/items — 加项
   // ============================================================
-  async createItem(
-    code: string,
-    dto: CreateDictItemDto,
-    currentUserId: number,
-  ) {
+  async createItem(code: string, dto: CreateDictItemDto, currentUserId: number) {
     const type = await this.prisma.dictType.findUnique({ where: { code } });
     if (!type) {
       throw new BizException(BizCode.BIZ_ERROR, `字典类型 ${code} 不存在`);
@@ -164,14 +160,8 @@ export class DictService {
       });
       return created;
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
-        throw new BizException(
-          BizCode.BIZ_ERROR,
-          `同类型下 value 重复: ${dto.value}`,
-        );
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new BizException(BizCode.BIZ_ERROR, `同类型下 value 重复: ${dto.value}`);
       }
       throw e;
     }
@@ -180,11 +170,7 @@ export class DictService {
   // ============================================================
   // PUT /api/dicts/items/:id — 更新项
   // ============================================================
-  async updateItem(
-    id: number,
-    dto: UpdateDictItemDto,
-    currentUserId: number,
-  ) {
+  async updateItem(id: number, dto: UpdateDictItemDto, currentUserId: number) {
     const exist = await this.prisma.dictItem.findUnique({ where: { id } });
     if (!exist) {
       throw new BizException(BizCode.BIZ_ERROR, '字典项不存在');
@@ -223,10 +209,7 @@ export class DictService {
       });
       return updated;
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.BIZ_ERROR, '同类型下 value 重复');
       }
       throw e;

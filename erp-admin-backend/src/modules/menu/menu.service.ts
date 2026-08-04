@@ -130,16 +130,10 @@ export class MenuService {
    */
   async create(dto: CreateMenuDto) {
     if (dto.type === 3 && !dto.permCode) {
-      throw new BizException(
-        BizCode.PARAM_ERROR,
-        'type=3(按钮)必须指定 permCode',
-      );
+      throw new BizException(BizCode.PARAM_ERROR, 'type=3(按钮)必须指定 permCode');
     }
     if (dto.type === 2 && (!dto.path || !dto.component)) {
-      throw new BizException(
-        BizCode.PARAM_ERROR,
-        'type=2(菜单)必须指定 path 和 component',
-      );
+      throw new BizException(BizCode.PARAM_ERROR, 'type=2(菜单)必须指定 path 和 component');
     }
     // parent 存在性
     if (dto.parentId != null) {
@@ -166,10 +160,7 @@ export class MenuService {
         },
       });
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.USERNAME_EXISTS, 'permCode 已存在');
       }
       throw e;
@@ -185,10 +176,7 @@ export class MenuService {
       throw new BizException(BizCode.PARAM_ERROR, '菜单不存在');
     }
     if (dto.type === 3 && !dto.permCode && !exist.permCode) {
-      throw new BizException(
-        BizCode.PARAM_ERROR,
-        'type=3(按钮)必须指定 permCode',
-      );
+      throw new BizException(BizCode.PARAM_ERROR, 'type=3(按钮)必须指定 permCode');
     }
     try {
       return await this.prisma.menu.update({
@@ -207,10 +195,7 @@ export class MenuService {
         },
       });
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BizException(BizCode.USERNAME_EXISTS, 'permCode 已存在');
       }
       throw e;
@@ -230,19 +215,13 @@ export class MenuService {
       where: { parentId: id },
     });
     if (child) {
-      throw new BizException(
-        BizCode.STATE_NOT_ALLOW,
-        '存在子菜单,无法删除',
-      );
+      throw new BizException(BizCode.STATE_NOT_ALLOW, '存在子菜单,无法删除');
     }
     const roleBinding = await this.prisma.roleMenu.findFirst({
       where: { menuId: id },
     });
     if (roleBinding) {
-      throw new BizException(
-        BizCode.STATE_NOT_ALLOW,
-        '菜单已被角色绑定,无法删除',
-      );
+      throw new BizException(BizCode.STATE_NOT_ALLOW, '菜单已被角色绑定,无法删除');
     }
     await this.prisma.menu.delete({ where: { id } });
     return { id };

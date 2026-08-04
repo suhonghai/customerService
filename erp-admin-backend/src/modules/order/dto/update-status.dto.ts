@@ -1,11 +1,4 @@
-import {
-  IsDateString,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Length,
-} from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional, IsString, Length } from 'class-validator';
 
 /**
  * PUT /api/orders/:id/status — 改订单状态(带状态机)

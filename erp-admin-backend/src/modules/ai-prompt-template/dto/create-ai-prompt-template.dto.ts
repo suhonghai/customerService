@@ -1,12 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsInt,
-  MinLength,
-  MaxLength,
-  Min,
-  Max,
-} from 'class-validator';
+import { IsString, IsOptional, IsInt, MinLength, MaxLength, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateAiPromptTemplateDto {

@@ -1,21 +1,10 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  Param,
-  ParseIntPipe,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Delete, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RequirePermission } from '../../common/decorators/permission.decorator';
-import {
-  CurrentUser,
-  ICurrentUser,
-} from '../../common/decorators/user.decorator';
+import { CurrentUser, ICurrentUser } from '../../common/decorators/user.decorator';
 import { SessionService } from './session.service';
 import { QuerySessionDto } from './dto/query-session.dto';
 import { QueryMessagesDto } from './dto/query-messages.dto';
@@ -43,10 +32,7 @@ export class SessionController {
   @Get(':id')
   @RequirePermission('session:view', 'session:*')
   @ApiOperation({ summary: '会话详情' })
-  async findOne(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() cu: ICurrentUser,
-  ) {
+  async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
     return this.sessionService.findOne(id, cu.id);
   }
 
@@ -70,10 +56,7 @@ export class SessionController {
   @Delete(':id')
   @RequirePermission('session:delete', 'session:*')
   @ApiOperation({ summary: '软删会话(GDPR)' })
-  async remove(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() cu: ICurrentUser,
-  ) {
+  async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
     return this.sessionService.remove(id, cu.id);
   }
 }
