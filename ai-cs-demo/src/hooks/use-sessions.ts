@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import type { UIMessage } from 'ai';
 import { getVisitorId } from '@/lib/visitor';
 import { sanitizeTitle } from '@/lib/pii-sanitize';
+import { withCache } from '@/lib/with-cache';
 
 /**
  * 一个客服会话。
@@ -101,8 +102,11 @@ export type RemoteFetchResult =
  *
  * 注意:必须走相对路径(`/api/customer/sessions/list`),不能拼 NEXT_PUBLIC_API_BASE_URL
  * (那是 backend 3001,这个 Next route 只在 ai-cs-demo 自己 9529 才有)
+ *
+ * withCache 包住 — 防 React Strict Mode dev 双调用 effect 重复请求(只 1 次真请求,后续命中 cache)
+ * 失败 reset:401/network 错误下次可重试(不会永久缓存 reject)
  */
-async function fetchRemoteSessions(): Promise<RemoteFetchResult> {
+const fetchRemoteSessions = withCache(async (): Promise<RemoteFetchResult> => {
   try {
     const res = await fetch('/api/customer/sessions/list', {
       method: 'GET',
@@ -122,7 +126,7 @@ async function fetchRemoteSessions(): Promise<RemoteFetchResult> {
   } catch {
     return { ok: false, reason: 'network' };
   }
-}
+});
 
 function deriveTitle(messages: UIMessage[], currentTitle: string): string {
   if (currentTitle !== DEFAULT_TITLE) return currentTitle;

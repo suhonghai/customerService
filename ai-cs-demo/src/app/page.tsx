@@ -10,7 +10,19 @@ import { getClientUserId, getClientCustomerId, logoutRequest } from '@/lib/auth'
 import { scanStreamError } from '@/lib/stream-error-scanner';
 import { refetchSessionHistory } from '@/lib/refetch-history';
 import { shouldCreateNewSession, findReusableEmptySession } from '@/lib/session-policy';
+import { withCache } from '@/lib/with-cache';
 import type { UserFacingError, UserFacingErrorActionType } from '@/lib/errors';
+
+/**
+ * 拉 KB / store 元信息(mount 时 1 次)。
+ * withCache 包住 — 防 React Strict Mode dev 双调用 effect + HMR 多次 mount 重复请求。
+ * 失败 reset(下次可重试)。
+ */
+const getStoreInfo = withCache(() =>
+  fetch('/api/store-info')
+    .then((r) => r.json())
+    .catch(() => null),
+);
 import { SessionList } from '@/components/SessionList';
 import { MoreMenu } from '@/components/MoreMenu';
 import { AuthGuard } from '@/components/AuthGuard';
@@ -124,10 +136,7 @@ function RAGChat() {
   }, [messages, status]);
   /* eslint-enable react-hooks/set-state-in-effect */
   useEffect(() => {
-    fetch('/api/store-info')
-      .then((r) => r.json())
-      .catch(() => null)
-      .finally(() => setKbReady(true));
+    getStoreInfo().finally(() => setKbReady(true));
   }, []);
 
   const refetchHistoryRef = useRef<((sid: number) => Promise<void>) | undefined>(undefined);
