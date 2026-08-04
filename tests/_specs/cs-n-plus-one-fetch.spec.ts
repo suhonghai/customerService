@@ -1,5 +1,18 @@
+/**
+ * Spec 位置:tests/_specs/cs-n-plus-one-fetch.spec.ts(根 vitest)
+ *
+ * 提级原因:
+ *   withCache 原本放在 ai-cs-demo/src/lib/with-cache.test.ts(co-located 单测),
+ *   但 commit-msg check-spec-link 钩子不认子包路径,导致每次涉及 withCache 的
+ *   commit 都要 no-spec: 跳过。2026-08 钩子增补了子包路径(见 scripts/check-spec-link.ts),
+ *   但本 spec 仍提到根:既利用钩子索引,又避免子包 vitest 跑重复(根 + 子包两份等价 spec 会双跑)。
+ *
+ * withCache 实现仍在 ai-cs-demo/src/lib/with-cache.ts(page.tsx / use-sessions.ts 引用),
+ * 本 spec 通过相对路径直接 import 该实现,跑根 vitest(node 环境,纯 vi.fn + Promise)。
+ */
 import { describe, it, expect, vi } from 'vitest';
-import { withCache } from './with-cache';
+// 相对路径直连实现 — 不走 @/ 别名(根 vitest 不识别子包 alias)
+import { withCache } from '../../ai-cs-demo/src/lib/with-cache';
 
 /**
  * withCache:防 React Strict Mode dev 双调用 effect + HMR 多次 mount 重复请求
@@ -10,7 +23,7 @@ import { withCache } from './with-cache';
  * 2. 并发调用共享同一 in-flight promise
  * 3. 失败 reset cache,下次可重试
  */
-describe('withCache', () => {
+describe('withCache — cs-n-plus-one-fetch', () => {
   it('Scenario 1: 多次顺序调用,只执行 1 次 fetcher,结果一致', async () => {
     const fetcher = vi.fn().mockResolvedValue('data');
     const get = withCache(fetcher);

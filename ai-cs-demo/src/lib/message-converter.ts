@@ -71,9 +71,15 @@ export function storedToUIMessage(m: StoredMessage, markInterrupted: boolean): U
   if (textParts.length === 0 && !reasoning && typeof baseMeta.lastChunkType === 'string') {
     reasoning = buildReasoningText(baseMeta);
   }
-  const metadata = markInterrupted
-    ? { ...baseMeta, isInterrupted: true, reasoning }
-    : { ...baseMeta, reasoning };
+  // 契约(根 spec fix-009 锁):只在 reasoning 有内容时才塞 reasoning 键
+  // 不然 `expect(metadata).toEqual({ foo: 'bar' })` 这类严格断言会被 `reasoning: ''` 污染
+  let metadata: Record<string, unknown> = baseMeta;
+  if (markInterrupted) {
+    metadata = { ...metadata, isInterrupted: true };
+  }
+  if (reasoning) {
+    metadata = { ...metadata, reasoning };
+  }
   return {
     id: String(m.id),
     role: m.role,
