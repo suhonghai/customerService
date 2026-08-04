@@ -37,12 +37,11 @@ export function defineTool<T extends ZodTypeAny, R>(spec: {
   // 的 infer(类型上是 z.infer<T>),OUTPUT 是 R,但 TS 无法把 T 的 zod v3 schema
   // 直接 narrow 到 FlexibleSchema<INPUT>(v4 用 $ZodType),所以 no overload matches。
   // cast 到 never overload 后,运行时仍按 spec.execute 走,行为不变。
-  // @ts-ignore 见上方注释。
   return tool({
     description: spec.description,
-    // @ts-ignore 见上方注释。
+    // @ts-expect-error 见上方注释。
     inputSchema: spec.inputSchema,
-    // @ts-ignore 见上方注释。
+    // @ts-expect-error 见上方注释。
     execute: async (input, options) => {
       // AI SDK 6.x 的 tool execute 第二参数有 abortSignal;取不到就用 never-abort 的
       const signal =
