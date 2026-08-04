@@ -99,7 +99,7 @@ jobs:
 
       - name: Publish to GitHub Release
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@3198ee18f814cdf787321b4a32a26ddbf37acc52 # v2.0.3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           body_path: release-notes.md
           draft: false
