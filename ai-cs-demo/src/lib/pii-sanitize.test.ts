@@ -1,5 +1,5 @@
 /**
- * @status implemented
+ * @status accepted
  * @change-id cs-round-004
  *
  * cs-round-004:PII 脱敏(单元测试,纯函数)

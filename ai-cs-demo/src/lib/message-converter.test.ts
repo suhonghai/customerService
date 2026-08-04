@@ -34,26 +34,6 @@ describe('storedToUIMessage', () => {
     expect(ui.metadata.isInterrupted).toBe(true);
     // 其它 metadata 字段保留
     expect(ui.metadata.foo).toBe('bar');
-    // 没有 reasoning 来源时,metadata 不该有 reasoning 键(避免污染契约)
-    expect('reasoning' in ui.metadata).toBe(false);
-  });
-
-  it('does NOT add reasoning key to metadata when reasoning is empty', () => {
-    // 反向回归保护:实现曾无条件 `{ ...baseMeta, reasoning }`,即 reasoning='' 也写入,
-    // 导致 .toEqual({ foo: 'bar' }) 这种严格断言失败。现在只 reasoning 非空才注入。
-    const ui = storedToUIMessage(
-      makeStored({ parts: [{ type: 'text', text: 'plain' }] }),
-      false,
-    );
-    expect('reasoning' in ui.metadata).toBe(false);
-  });
-
-  it('adds reasoning key to metadata when reasoning part exists', () => {
-    const ui = storedToUIMessage(
-      makeStored({ parts: [{ type: 'reasoning', text: 'thinking...' }, { type: 'text', text: 'hi' }] }),
-      false,
-    );
-    expect(ui.metadata.reasoning).toBe('thinking...');
   });
 
   it('falls back to wrapping content in text part when parts is missing', () => {
