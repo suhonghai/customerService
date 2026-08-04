@@ -17,6 +17,14 @@ import { defineConfig } from 'vitest/config';
  *   pnpm test:spec                              # 跑所有 spec
  *   pnpm vitest run tests/_specs/<id>.spec.ts   # 跑单个(用 vitest CLI 直传 file path)
  *   pnpm vitest run -t "scenario name"          # 按 it() 标题过滤
+ *
+ * 关于 passWithNoTests:
+ *   issue #34:之前 = true,导致 pnpm test:spec 在 0 spec 时也 exit 0,
+ *   「维度 2:失败 block merge」成空话。改成 false:任何 PR 把根 spec 跑成 0
+ *   都会立即 CI 变红,守门真正生效。
+ *
+ *   兜底:如果未来真需要临时 0 spec(比如重构期),显式改 vitest.config.ts,
+ *   而不是静默放过 —— 这种 guard 必须 fail loud。
  */
 export default defineConfig({
   test: {
@@ -26,6 +34,6 @@ export default defineConfig({
     exclude: ['**/_template.spec.ts', '**/node_modules/**'],
     environment: 'node',
     reporters: 'default',
-    passWithNoTests: true, // 还没 spec 写时跑过 CI 不算失败
+    passWithNoTests: false, // 见上方注释 + issue #34
   },
 });

@@ -67,7 +67,9 @@ pnpm --filter erp-admin-backend lint
 # 5) PR 流程
 #   先 fork → short-lived branch (< 24h) → PR 用根 .github/pull_request_template.md
 #   commit message 走 conventional commits(commitlint 校验)
-#   ai-cs-demo 还有自己的 CI workflow:.github/workflows/{pr-tests,check-engineering-redlines,close_stale_fix_prs}.yml
+#   ai-cs-demo 的 CI 由根 .github/workflows/pr-tests.yml 的 ai-cs-demo-tests job 覆盖
+#   (lint / unit / build 都在根 workflow 里跑,GitHub 不读子目录 .github/workflows/)
+#   — issue #27 cleanup-wf
 ```
 
 ---
@@ -308,5 +310,6 @@ Then <外部可观察结果>
 
 - 子包已经有了 README / docs/`*-notes.md` —— 别建新的 doc dir
 - 子包有自有 lint/test 配置 —— 别在根再抄一份
-- 子包有私有 hooks(`ai-cs-demo/.github/workflows/`)—— 跟根 `.github/` 是两个层级,各管各的
+- 子包**无**私有 hooks(`ai-cs-demo/.github/workflows/` 已删 — GitHub 不读子目录 workflow,
+  是死代码;lint / tsc / redlines 由根 pr-tests.yml 统一跑)— issue #27
 - **新东西进项目之前**问:**这是 2026 必须的吗?** 不是 → 别加
