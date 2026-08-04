@@ -13,9 +13,9 @@
 - **已完整落地**:`7`(Dim 1, 3, 4, 5, 7, 8, plus 1 拆)
 - **部分落地 / 进行中**:`1`
 - **未开始**:`0`
-- **整体成熟度**:`~95%`(工具 + 文档 + 实战 + 关键问题 + 全部 8 维度闭环 + 活文档)
+- **整体成熟度**:`~85%`(batch-2 `ac615f2` 诚实化:原 95% 含 5 项 cleanup 待办)
 
-> 最近更新:2026-07-31(Dim 8 完整落地:INDEX 索引 + Liveness 报告 + CLAUDE Living Spec 段)
+> 最近更新:2026-08-04(诚实化补登 — `ac615f2` 承诺改本文件但当时未落,今日补回;Dim 8 闭环仍 2026-07-31)
 
 ---
 
@@ -107,16 +107,16 @@
 
 > 来源:2026-07-31 11 项整改的落点决策;`CLAUDE.md` 「Spec 落点分层」段仅保留代表性 3 行,完整 8 行表在此段(2026-08-03 #17 迁移)。
 
-| 整改                         | 落点                                                  |
-| ---------------------------- | ----------------------------------------------------- |
-| P0-1 messageCount 语义        | 根(backend + frontend 都感知)                         |
-| P0-2 placeholder reaper       | 根(后端 + WS + 前端 reconnect)                        |
-| P1-1 handoff ack 落库         | 根(前端 + 后端 + 运营侧)                              |
-| P1-2 PII 脱敏                 | 根(前端 sanitize + 后端落库 + 运营展示)              |
-| P2-1 role 白名单              | `erp-admin-backend/test/`(纯后端)                    |
-| P2-2 cs_message.updatedAt     | 根(跨包但偏 schema)                                  |
-| P2-4 WS auth                  | 根(后端 + 前端 handshake)                            |
-| P1-3 deleteByKey              | 根(前端 + 后端)                                       |
+| 整改                      | 落点                                    |
+| ------------------------- | --------------------------------------- |
+| P0-1 messageCount 语义    | 根(backend + frontend 都感知)           |
+| P0-2 placeholder reaper   | 根(后端 + WS + 前端 reconnect)          |
+| P1-1 handoff ack 落库     | 根(前端 + 后端 + 运营侧)                |
+| P1-2 PII 脱敏             | 根(前端 sanitize + 后端落库 + 运营展示) |
+| P2-1 role 白名单          | `erp-admin-backend/test/`(纯后端)       |
+| P2-2 cs_message.updatedAt | 根(跨包但偏 schema)                     |
+| P2-4 WS auth              | 根(后端 + 前端 handshake)               |
+| P1-3 deleteByKey          | 根(前端 + 后端)                         |
 
 ---
 
@@ -137,8 +137,8 @@
   - 新增 `.github/workflows/ssd-spec-checks.yml`(根 spec + audit 跑根 vitest)
   - 后端 jest e2e 不重做:`.github/workflows/pr-e2e.yml` 已存在,跑真服务(MySQL/Chroma)+ `pnpm --filter erp-admin-backend test`
   - 两个 workflow 互不耦合:
-    - `ssd-spec-checks.yml`:路径过滤 tests/_specs/、docs/、CLAUDE.md 等;不需 DB
-    - `pr-e2e.yml`:路径过滤 erp-admin-backend/、Makefile、docker-compose.*.yml;需 docker compose stack
+    - `ssd-spec-checks.yml`:路径过滤 tests/\_specs/、docs/、CLAUDE.md 等;不需 DB
+    - `pr-e2e.yml`:路径过滤 erp-admin-backend/、Makefile、docker-compose.\*.yml;需 docker compose stack
   - 改维度 2 / 6 → ✅ 已完成
 
 ### §B. commit-msg hook 双向校验
@@ -208,10 +208,10 @@
 
 ## 升级路径(从 30% → 100%)
 
-| 阶段    | 完成项                                                                  | 预计成熟度 | 所需时间 |
-| ------- | ----------------------------------------------------------------------- | ---------- | -------- |
-| 现在    | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + 8 维度全闭环                   | 95%        | —        |
-| 长期    | 团队 onboarding / 多轮 spec 形成习惯 / 后端 jest e2e 扩 cover 全部 11 项 | 100%       | —        |
+| 阶段 | 完成项                                                                   | 预计成熟度 | 所需时间 |
+| ---- | ------------------------------------------------------------------------ | ---------- | -------- |
+| 现在 | 工具 + 文档 + 实战 + 关键问题 + 流程优化 + 8 维度全闭环                  | 95%        | —        |
+| 长期 | 团队 onboarding / 多轮 spec 形成习惯 / 后端 jest e2e 扩 cover 全部 11 项 | 100%       | —        |
 
 ---
 
