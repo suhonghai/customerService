@@ -36,6 +36,7 @@ export class InternalController {
    *   仅供同机服务(ai-cs-demo)调用,IP 必须是 127.0.0.1/::1
    */
   @Get('ai-config/active')
+  // TODO(throttle):internal 端点虽有 IP 白名单 + token 双因子,但对外暴露需限流(issue #25)。
   @ApiOperation({ summary: '取默认 AI 配置(明文 key,供 ai-cs-demo)' })
   async getActiveAiConfig() {
     return this.internalService.getActiveAiConfig();
@@ -46,6 +47,7 @@ export class InternalController {
    *   FAQ 语义检索,只返 published
    */
   @Get('faq/search')
+  // TODO(throttle):internal FAQ 检索需限流,issue #25。
   @ApiOperation({ summary: 'FAQ 语义检索(只查 published)' })
   async searchFaq(@Query('q') q: string, @Query('topK') topK?: string) {
     const k = topK ? parseInt(topK, 10) : 3;
@@ -89,6 +91,7 @@ export class InternalController {
    *   upsert 会话(按 sessionKey)
    */
   @Post('sessions')
+  // TODO(throttle):internal session upsert 需限流,issue #25。
   @ApiOperation({ summary: 'upsert 会话(按 sessionKey)' })
   async upsertSession(@Body() dto: UpsertSessionDto) {
     return this.internalService.upsertSession(dto);
@@ -99,6 +102,7 @@ export class InternalController {
    *   追加消息
    */
   @Post('sessions/:id/messages')
+  // TODO(throttle):internal append message 需限流,issue #25。
   @ApiOperation({ summary: '追加消息(role=user/assistant/system/tool)' })
   async appendMessage(@Param('id', ParseIntPipe) id: number, @Body() dto: AppendMessageDto) {
     return this.internalService.appendMessage(id, dto);
@@ -162,6 +166,7 @@ export class InternalController {
    *   创建工单(系统占位 creatorId=1,自动 ticketNo + SLA)
    */
   @Post('tickets')
+  // TODO(throttle):internal create ticket 需限流,issue #25。
   @ApiOperation({ summary: '创建工单(转人工,系统占位 creator)' })
   async createTicket(@Body() dto: CreateInternalTicketDto) {
     return this.internalService.createTicket(dto);
@@ -174,6 +179,7 @@ export class InternalController {
    *   运营可在后台按 category 筛选所有转人工来源的工单
    */
   @Post('escalations')
+  // TODO(throttle):internal create escalation 需限流,issue #25。
   @ApiOperation({ summary: '转人工专用工单(系统占位 creator,默认高优)' })
   async createEscalation(@Body() dto: CreateInternalEscalationDto) {
     return this.internalService.createEscalation(dto);
@@ -207,6 +213,7 @@ export class InternalController {
    *   内部仍走原有 cs_message bridge + operator_reply emit
    */
   @Post('tickets/:id/messages')
+  // TODO(throttle):internal append operator message 需限流,issue #25。
   @ApiOperation({ summary: '运营通过 ticket 路由发消息(转 reply())' })
   async appendOperatorMessage(
     @Param('id', ParseIntPipe) id: number,
@@ -235,6 +242,7 @@ export class InternalController {
    *   阈值:5 分钟(远大于 maxDuration=60s,不会误杀正在生成的流)。
    */
   @Post('reap-orphans')
+  // TODO(throttle):reapOrphans 是定时任务也可由前端触发,需限流,issue #25。
   @ApiOperation({ summary: '收敛 stale streaming placeholder(status=2 → status=4)' })
   async reapOrphans() {
     return this.internalService.reapStaleStreaming();

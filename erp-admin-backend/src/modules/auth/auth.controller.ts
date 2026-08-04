@@ -29,6 +29,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
+  // TODO(throttle):登录端点需限流(防爆破),issue #25 跟踪;正式实施需装 @nestjs/throttler。
   @ApiOperation({ summary: '登录(返 access + refresh + user,Set-Cookie httpOnly)' })
   async login(
     @Body() dto: LoginDto,
@@ -56,6 +57,7 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(200)
+  // TODO(throttle):refresh 端点需限流(防 token 滥用),issue #25 跟踪。
   @ApiOperation({ summary: '刷新 access token(用 refresh token 换,Set-Cookie httpOnly)' })
   async refresh(
     @Body() dto: RefreshDto,

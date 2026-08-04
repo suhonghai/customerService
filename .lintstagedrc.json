@@ -1,10 +1,6 @@
 {
-  "erp-admin-backend/src/**/*.{ts,tsx}": [
-    "cd erp-admin-backend && pnpm exec eslint \"{src,apps,libs,test}/**/*.ts\" --fix --max-warnings 0",
-    "cd erp-admin-backend && pnpm exec prettier --write"
-  ],
-  "erp-admin-backend/test/**/*.{ts,tsx}": [
-    "cd erp-admin-backend && pnpm exec eslint \"{src,apps,libs,test}/**/*.ts\" --fix --max-warnings 0",
+  "erp-admin-backend/{src,test}/**/*.{ts,tsx}": [
+    "cd erp-admin-backend && pnpm exec eslint --fix --max-warnings 0",
     "cd erp-admin-backend && pnpm exec prettier --write"
   ],
   "erp-admin-backend/prisma/**/*.ts": [

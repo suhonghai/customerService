@@ -32,6 +32,7 @@ export class CsAuthController {
 
   @Post('login')
   @HttpCode(200)
+  // TODO(throttle):C 端登录需限流,issue #25 跟踪。
   @ApiOperation({ summary: 'C 端登录(邮箱+密码,Set-Cookie cs_access_token)' })
   async login(
     @Body() dto: CsLoginDto,

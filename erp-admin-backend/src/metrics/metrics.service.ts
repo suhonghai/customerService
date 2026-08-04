@@ -74,12 +74,4 @@ export class MetricsService {
       body,
     };
   }
-
-  /**
-   * 给测试用:把 histogram 的 bucket snapshot 出来。
-   * (暂未在 controller 中使用,留给未来测试。)
-   */
-  getHistogramSnapshot(): unknown {
-    return this.httpRequestDuration.get();
-  }
 }
