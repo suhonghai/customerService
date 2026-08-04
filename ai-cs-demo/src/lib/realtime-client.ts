@@ -44,7 +44,10 @@ export function connectRealtime(sessionKey: string): Socket {
       : 'http://localhost:3001');
 
   socket = io(`${url}/realtime`, {
-    auth: { sessionKey },
+    // cs-round-007(#24):WS 握手鉴权 — 必须同时带 sessionKey + token。
+    // token 是 server-to-server 的 INTERNAL_TOKEN(env 注入,前端不需要单独 secret 管理)。
+    // 后端 handleConnection 会先验 token 再查 sessionKey,缺/错直接 disconnect。
+    auth: { sessionKey, token: process.env.NEXT_PUBLIC_INTERNAL_TOKEN ?? '' },
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 1000,

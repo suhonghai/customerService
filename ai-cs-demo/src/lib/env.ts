@@ -46,6 +46,8 @@ const envSchema = z.object({
   ERP_ADMIN_TOKEN: z.string().optional(),
   ERP_ADMIN_INTERNAL_TOKEN: z.string().optional(),
   INTERNAL_TOKEN: z.string().optional(),
+  // NEXT_PUBLIC_INTERNAL_TOKEN:浏览器可见,WS 握手用(#24 cs-round-007)
+  NEXT_PUBLIC_INTERNAL_TOKEN: z.string().optional(),
 
   // Server
   PORT: z.coerce.number().default(9529),
