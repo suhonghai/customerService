@@ -18,7 +18,7 @@
  *  - 失败信息要明确告诉用户怎么修
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const ROOT = resolve(__dirname, '..');
@@ -27,18 +27,58 @@ const NO_SPEC_TAG = 'no-spec:';
 // 匹配 [change-id] 段,change-id 限小写字母 + 数字 + 连字符(常见命名规范)
 const CHANGE_ID_RE = /\[([a-z][a-z0-9-]+)\]/g;
 
+// 子包 co-located 单测档(CLAUDE.md "Spec 落点对应表" 第 3 档)
+const SUBPACKAGE_SRC_DIRS = [
+  'erp-admin-backend/src',
+  'erp-admin-frontend/src',
+  'ai-cs-demo/src',
+] as const;
+
 /**
  * 给定 change-id,返回所有可能的 spec 文件路径(按优先级排)
- * - 根 vitest spec(跨包 / 端到端 / 前端纯逻辑)
- * - 后端 jest e2e-spec
- * - 后端 jest unit spec
+ *
+ * 对应 CLAUDE.md "Spec 落点对应表" 三档:
+ * - 根 vitest spec(跨包 / 端到端 / 用户可见)
+ * - 后端 jest e2e-spec / unit spec
+ * - 子包 <pkg>/src/<id>.test.ts(co-located 单测,2026-08 增补,见 findSubpackageSpec)
+ *
+ * 命名约定:子包 co-located spec 文件**直接命名为 <id>.test.ts 或 <id>.spec.ts**
+ * (与 SUT 同名也可,只要文件名含 id 字面值即可;但更推荐用 id 命名以便 grep 反查)
  */
 function specPathsFor(id: string): string[] {
   return [
+    // 第 1 档:根 vitest 跨包 spec
     resolve(ROOT, `tests/_specs/${id}.spec.ts`),
+    // 第 2 档:后端 jest
     resolve(ROOT, `erp-admin-backend/test/${id}.e2e-spec.ts`),
     resolve(ROOT, `erp-admin-backend/test/${id}.spec.ts`),
   ];
+}
+
+/**
+ * 在子包 src/ 下递归找 ${id}.test.ts 或 ${id}.spec.ts(任何子文件夹)
+ * Node 20+ 的 readdirSync recursive 模式,返回相对 base 的路径数组
+ */
+function findSubpackageSpec(id: string): string | null {
+  for (const relDir of SUBPACKAGE_SRC_DIRS) {
+    const base = resolve(ROOT, relDir);
+    if (!existsSync(base)) continue;
+    let entries: string[];
+    try {
+      entries = readdirSync(base, { recursive: true, withFileTypes: false }) as string[];
+    } catch {
+      // Node < 20 不支持 recursive 选项,跳过
+      continue;
+    }
+    for (const f of entries) {
+      // 排除目录;Node 18 不会列出目录,Node 20+ 也不会(只列文件)
+      const basename = f.split('/').pop() ?? f;
+      if (basename === `${id}.test.ts` || basename === `${id}.spec.ts`) {
+        return resolve(base, f);
+      }
+    }
+  }
+  return null;
 }
 
 function main() {
@@ -74,7 +114,9 @@ function main() {
   const missing: string[] = [];
   const found: Array<{ id: string; path: string }> = [];
   for (const id of ids) {
-    const hits = specPathsFor(id).filter((p) => existsSync(p));
+    const fixed = specPathsFor(id).filter((p) => existsSync(p));
+    const dynamic = findSubpackageSpec(id);
+    const hits = [...fixed, ...(dynamic ? [dynamic] : [])];
     if (hits.length === 0) {
       missing.push(id);
     } else {
@@ -89,6 +131,7 @@ function main() {
       console.error(`     • tests/_specs/${id}.spec.ts(根 vitest)`);
       console.error(`     • erp-admin-backend/test/${id}.e2e-spec.ts(后端 jest e2e)`);
       console.error(`     • erp-admin-backend/test/${id}.spec.ts(后端 jest unit)`);
+      console.error(`     • <子包>/src/${id}.test.ts 或 ${id}.spec.ts(co-located 单测,任一子文件夹)`);
     }
     console.error(`\n修法(三选一):`);
     console.error(`  1. 在上述任一路径写 spec(推荐)`);
