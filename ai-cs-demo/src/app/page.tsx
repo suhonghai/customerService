@@ -118,7 +118,9 @@ function RAGChat() {
 
   /* eslint-disable react-hooks/set-state-in-effect -- 同步 messages/status → derived streamError(imperative reset 由 handleErrorAction 单独维护) */
   useEffect(() => {
-    setStreamError(scanStreamError(messages, status));
+    // AI SDK 6.x scanStreamError 入参是 StreamMessage[],而 messages 是 UIMessage[];
+    // 两者 shape 兼容(messages 是 StreamMessage 的 superset),这里显式 cast 让 TS 安静。
+    setStreamError(scanStreamError(messages as unknown as Parameters<typeof scanStreamError>[0], status));
   }, [messages, status]);
   /* eslint-enable react-hooks/set-state-in-effect */
   useEffect(() => {

@@ -223,8 +223,10 @@ export function exportToMarkdown(
   }
 
   session.messages.forEach((m, idx) => {
-    const ts = m.metadata?.messageCreatedAt
-      ? new Date(m.metadata.messageCreatedAt).toLocaleString('zh-CN')
+    // AI SDK 6.x UIMessage.metadata 是 unknown(用户自定义),这里 cast 到 ExportMetadata 子集
+    const meta = m.metadata as ExportMetadata | undefined
+    const ts = meta?.messageCreatedAt
+      ? new Date(meta.messageCreatedAt).toLocaleString('zh-CN')
       : '';
     const roleEmoji = m.role === 'user' ? '👤' : '🤖';
     const roleLabel = m.role === 'user' ? '用户' : 'AI';
@@ -266,7 +268,7 @@ export function exportToMarkdown(
 
     // 检索引用(AI 消息)
     if (m.role === 'assistant') {
-      const retrieval = describeRetrieval(m.metadata);
+      const retrieval = describeRetrieval(meta);
       if (retrieval) {
         lines.push(retrieval);
         lines.push('');
@@ -284,9 +286,9 @@ export function exportToMarkdown(
 
     // 元数据
     if (m.role === 'assistant') {
-      const meta = describeMetadata(m.metadata);
-      if (meta) {
-        lines.push(meta);
+      const metadataDesc = describeMetadata(meta);
+      if (metadataDesc) {
+        lines.push(metadataDesc);
         lines.push('');
       }
     }

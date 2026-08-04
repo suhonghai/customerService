@@ -50,6 +50,10 @@ const envSchema = z.object({
   // Server
   PORT: z.coerce.number().default(9529),
 
+  // 可选外部 API(get_weather 工具用,默认走 mock 数据)
+  WEATHER_API_URL: z.string().url().optional(),
+  WEATHER_API_KEY: z.string().optional(),
+
   // Debug
   NEXT_PUBLIC_DEBUG_TRACE: z.enum(['true', 'false']).default('false'),
   NEXT_PUBLIC_DEBUG_RETRIEVAL: z.enum(['true', 'false']).default('false'),
