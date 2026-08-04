@@ -6,6 +6,7 @@ const {
   mockConnectRealtime,
   mockOnOperatorReply,
   mockDisconnectRealtime,
+  mockRefetchSessionHistory,
   makeSock,
   handlers,
 } = vi.hoisted(() => {
@@ -29,6 +30,7 @@ const {
       return () => handlers.delete(h);
     }),
     mockDisconnectRealtime: vi.fn(),
+    mockRefetchSessionHistory: vi.fn(async () => [] as UIMessage[]),
   };
 });
 
@@ -38,8 +40,13 @@ vi.mock('@/lib/realtime-client', () => ({
   disconnectRealtime: mockDisconnectRealtime,
 }));
 
+vi.mock('@/lib/refetch-history', () => ({
+  refetchSessionHistory: mockRefetchSessionHistory,
+}));
+
 import { useRealtime, useRealtimeDisconnectOnUnmount } from './use-realtime';
 import type { OperatorReplyPayload } from '@/lib/realtime-client';
+import type { UIMessage } from 'ai';
 
 describe('useRealtime', () => {
   beforeEach(() => {
@@ -47,6 +54,9 @@ describe('useRealtime', () => {
     mockConnectRealtime.mockClear();
     mockOnOperatorReply.mockClear();
     mockDisconnectRealtime.mockClear();
+    mockRefetchSessionHistory.mockClear();
+    // 重置 mockConnectRealtime 默认实现(vi.fn() 在 beforeEach 不重置实现)
+    mockConnectRealtime.mockImplementation(() => makeSock());
   });
 
   afterEach(() => {
@@ -157,5 +167,55 @@ describe('useRealtime', () => {
       (c: unknown[]) => c[0] === 'connect',
     ).length;
     expect(finalConnectCount).toBe(initialConnectCount);
+  });
+
+  // 回归 bug(2026-08-04):点左边的会话列表切 session,history 接口被请求 2 次
+  // 根因:切 session 时 useRealtime 重新连接(connectRealtime 同 key 复用,不同 key
+  //   会 disconnect 旧 socket + 建新 socket),新 socket 触发 connect 事件,
+  //   onConnectRecover handler 跑 → isFirstConnectRef.current 跨 session 不重置(已为 false)
+  //   → 跳过 "首次" 跳过逻辑 → 进入 refetch 分支 → 调 refetchSessionHistory
+  //   → 与 use-chat-state 拉的 history 合计 2 次
+  // 修复:isFirstConnectRef 在 sessionKey 变化时重置为 true(新 session 的"首次"连接不需要 refetch)
+  it('Scenario C: 切 session 时新 socket connect 事件不应触发 refetchSessionHistory', async () => {
+    const onMessage = vi.fn();
+    const onRecover = vi.fn();
+    const { rerender } = renderHook(
+      ({ key }: { key: string }) =>
+        useRealtime({
+          sessionKey: key,
+          onMessage,
+          enabled: true,
+          backendSessionId: 100,
+          onRecover,
+          getKnownMessageIds: () => new Set<string>(),
+        }),
+      { initialProps: { key: 'sess-A' } },
+    );
+
+    // 关键步骤 1:模拟"sess-A 已连上 backend" — 手动触发 sockA 的 connect handlers
+    // 这样 isFirstConnectRef 才会被 set 为 false(真实环境下 WS 几乎立即连上,
+    // mock sock 的 .on 只记录调用,不会自动触发 — 需要手动 await 跑)
+    const sockA = mockConnectRealtime.mock.results[0]?.value;
+    const handlersA = sockA.on.mock.calls
+      .filter((c: unknown[]) => c[0] === 'connect')
+      .map((c: unknown[]) => c[1] as () => unknown | Promise<unknown>);
+    for (const h of handlersA) {
+      await h();
+    }
+
+    // 切 session 到 B(connectRealtime mock 每次调 makeSock 返回新 sock)
+    rerender({ key: 'sess-B' });
+
+    // 关键步骤 2:触发 sockB 的 connect events(模拟新 socket 连到 backend)
+    const sockB = mockConnectRealtime.mock.results.at(-1)?.value;
+    const handlersB = sockB.on.mock.calls
+      .filter((c: unknown[]) => c[0] === 'connect')
+      .map((c: unknown[]) => c[1] as () => unknown | Promise<unknown>);
+    for (const h of handlersB) {
+      await h();
+    }
+
+    // 关键断言:切 session 的"首次"连接 不应触发 refetch
+    expect(mockRefetchSessionHistory).not.toHaveBeenCalled();
   });
 });

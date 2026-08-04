@@ -58,6 +58,18 @@ export function useRealtime({
   // 首次连接不算 reconnect(recovery ref:跳过补漏)
   const isFirstConnectRef = useRef(true);
 
+  // ── 2026-08-04 修复:切 session 时把 isFirstConnectRef 重置为 true ──
+  // 切 session(用户点左侧会话列表)→ sessionKey 变化 → useRealtime 主 effect 重跑
+  // → connectRealtime 因 key 不同 disconnect 旧 socket + 建新 socket → 新 socket 触发
+  // connect 事件 → onConnectRecover handler 跑。如果 isFirstConnectRef 不重置,
+  // 它还是 false(被前一会话首次连接时 set)→ 跳过"首次"逻辑 → 进入 refetch 分支
+  // → 调 refetchSessionHistory → 与 use-chat-state 拉的 history 合计 2 次
+  // 修法:sessionKey 变化时重置 isFirstConnectRef.current = true(新 session 的
+  // "首次"连接不 refetch,前端 use-chat-state 已经从 sessions 拿 messages 渲染)
+  useEffect(() => {
+    isFirstConnectRef.current = true;
+  }, [sessionKey]);
+
   // ── 2026-08-04 修复:把不稳定的函数引用缓存到 ref ──
   // 调用方(page.tsx)每次 render 都会传新 onMessage / onRecover / getKnownMessageIds 闭包,
   // 旧实现把 onRecover / getKnownMessageIds 放进 effect deps → 每次 render effect 重跑 →
