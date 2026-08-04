@@ -2,7 +2,7 @@
 # 用法:make help
 # 多环境:make ENV=development dev | make ENV=test up | make ENV=production up
 
-.PHONY: help dev dev-all dev-server dev-web dev-cs dev-cs-prod dev-down dev-restart-backend dev-restart-frontend dev-restart-ai-cs dev-restart-all dev-status build deploy health logs up down logs-compose health-compose db-migrate db-seed db-seed-cs db-init clean config
+.PHONY: help dev dev-all dev-server dev-web dev-cs dev-cs-prod dev-down dev-restart-backend dev-restart-frontend dev-restart-ai-cs dev-restart-all dev-status build deploy health logs up down logs-compose health-compose db-migrate migrate-deploy db-seed db-seed-cs db-init clean config
 
 # ----- 路径配置 -----
 ROOT_DIR := $(shell pwd)
@@ -84,7 +84,21 @@ endif
 config: ## 打印当前 ENV 解析出来的 compose config(校验用)
 	$(COMPOSE) config
 
-up: guard ## 一键拉起 5 个容器(mysql + chroma + backend + frontend + ai-cs-demo)
+# cs-prisma-drift-guard:deploy 前硬性跑 prisma migrate deploy(防 schema 和 DB 漂移)
+# 设计:用 `docker compose run --rm` one-shot 容器,不需要 backend 容器先起。
+# 失败时 `up` 也会失败(避免 backend 起来后撞 P2022 column not found)。
+# 注意:这个 target 是 `up` 的依赖,但 `db-migrate`(老 target,exec 进已起容器)保留兼容。
+migrate-deploy: guard ## 在 backend 容器跑 prisma migrate deploy(防 schema/client/DB 漂移)
+	@if [ ! -f $(ENV_FILE) ]; then \
+		echo "[ERROR] $(ENV_FILE) 不存在,先 cp .env.example $(ENV_FILE) 并填入 secrets" >&2; \
+		exit 1; \
+	fi
+	@echo "=== 跑 prisma migrate deploy (ENV=$(ENV)) ==="
+	@echo "  说明:跑前会自动 build backend 镜像(若需要);不依赖 backend 容器在跑"
+	@echo "  失败原因常见:schema 和 DB 不一致 / 字段名 typo / DATABASE_URL 配错"
+	@$(COMPOSE) run --rm erp-admin-backend pnpm exec prisma migrate deploy
+
+up: guard migrate-deploy ## 一键拉起 5 个容器(mysql + chroma + backend + frontend + ai-cs-demo);自动前置跑 prisma migrate deploy
 	@if [ ! -f $(ENV_FILE) ]; then \
 		echo "[ERROR] $(ENV_FILE) 不存在,先 cp .env.example $(ENV_FILE) 并填入 secrets" >&2; \
 		exit 1; \

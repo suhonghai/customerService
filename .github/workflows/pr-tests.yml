@@ -95,6 +95,15 @@ jobs:
         working-directory: erp-admin-backend
         run: pnpm exec prisma generate
 
+      # cs-prisma-drift-guard:验 schema 语法 + 类型(无 DB 依赖,跑 ~1s)
+      # 拦截 prisma 字段名 typo / 类型不匹配,让 schema 错在 PR 阶段就暴露
+      # 不替代 prisma migrate status(migrate status 需要 DB,本 workflow 不起 MySQL)
+      # 注:走 pnpm prisma:validate 而非 pnpm exec prisma validate,因为 script 自带 dummy DATABASE_URL
+      # (validate 不连 DB,只验 schema 语法,只需要变量存在)
+      - name: Validate Prisma schema
+        working-directory: erp-admin-backend
+        run: pnpm prisma:validate
+
       - name: Run backend unit tests
         working-directory: erp-admin-backend
         run: pnpm test
