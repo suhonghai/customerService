@@ -111,7 +111,7 @@ jobs:
         # fork 发来的 PR 拿不到 pull-requests:write,评论必然失败 —— 不该因此把整条检查判红。
         # ⚠️ 仅限通知类步骤可以这样;守门步骤永远不要加 continue-on-error(那就是本次修的「守门空转」病根)。
         continue-on-error: true
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.1
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: ssd-spec-status
           message: |
