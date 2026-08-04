@@ -218,4 +218,80 @@ describe('useRealtime', () => {
     // 关键断言:切 session 的"首次"连接 不应触发 refetch
     expect(mockRefetchSessionHistory).not.toHaveBeenCalled();
   });
+
+  // 回归 bug(2026-08-04):点新会话 /api/sessions/{id}/history 被请求 2 次
+  // 根因:dev mode React StrictMode 双调用 useEffect,导致同一 effect 闭包内的
+  //   isFirstConnect 状态(旧实现用 useRef 跨 effect 共享)被 2 个 listener 共享:
+  //   listener A 跑 → set false → return
+  //   listener B 跑(同 ref 已被 A set false)→ 进 refetch 分支 → 1 次额外 refetch
+  // 修复:isFirstConnect 移入 effect 闭包(每次 effect 跑 new fresh true),
+  //   2 个 listener 各自抓 fresh 变量 → 都看到 true → 都跳过 refetch。
+  it('Scenario D: 新建会话时 connect handler 跑 1 次,refetch 不被调', async () => {
+    const onMessage = vi.fn();
+    const onRecover = vi.fn();
+    const { rerender } = renderHook(
+      ({ enabled, backendSessionId }: { enabled: boolean; backendSessionId: number | null }) =>
+        useRealtime({
+          sessionKey: 'new-sess-X',
+          onMessage,
+          enabled,
+          backendSessionId,
+          onRecover,
+          getKnownMessageIds: () => new Set<string>(),
+        }),
+      { initialProps: { enabled: false, backendSessionId: null } as { enabled: boolean; backendSessionId: number | null } },
+    );
+
+    // 模拟 use-chat-state 异步拿到 backendId → enabled 变 true,backendSessionId 变 100
+    rerender({ enabled: true, backendSessionId: 100 });
+
+    // 模拟 socket.io 异步 connect 完成 → 触发 connect 事件
+    // (生产中 1 个 sock lifetime 内只 emit 1 次 connect)
+    const sock = mockConnectRealtime.mock.results[0]?.value;
+    expect(sock).toBeDefined();
+    const handlers = sock.on.mock.calls
+      .filter((c: unknown[]) => c[0] === 'connect')
+      .map((c: unknown[]) => c[1] as () => unknown | Promise<unknown>);
+    for (const h of handlers) {
+      await h();
+    }
+
+    // 关键断言:首次 connect 不应 refetch(use-chat-state 已经拉过 history,
+    // 切 session / 新建会话都不需要 refetch,refetch 仅用于 WS 异常 reconnect 补漏)
+    expect(mockRefetchSessionHistory).not.toHaveBeenCalled();
+  });
+
+  // 回归 bug(2026-08-04):WS 真正 reconnect 时仍需 refetch(从 bug 修复不被反向破坏)
+  // 模拟:同 sessionKey,useRealtime 同 effect 实例,connect 事件被触发 2 次
+  // (第一次:首次连接,isFirstConnect true → 跳过 → set false)
+  // (第二次:reconnect,isFirstConnect false → 进 refetch 分支)
+  // 闭包变量 isFirstConnect 跨 handler 调用的状态应正确传递(不应每次 new fresh)
+  it('Scenario E: 同 effect 实例内 WS reconnect 时仍能 refetch', async () => {
+    const onMessage = vi.fn();
+    const onRecover = vi.fn();
+    renderHook(() =>
+      useRealtime({
+        sessionKey: 'sess-stay',
+        onMessage,
+        enabled: true,
+        backendSessionId: 200,
+        onRecover,
+        getKnownMessageIds: () => new Set<string>(),
+      }),
+    );
+
+    const sock = mockConnectRealtime.mock.results[0]?.value;
+    const handlers = sock.on.mock.calls
+      .filter((c: unknown[]) => c[0] === 'connect')
+      .map((c: unknown[]) => c[1] as () => unknown | Promise<unknown>);
+
+    // 第一次 connect:首次连接 → 跳过 refetch
+    await handlers[1]?.();
+    expect(mockRefetchSessionHistory).not.toHaveBeenCalled();
+
+    // 第二次 connect:同 effect 实例的 WS reconnect(非首次)→ 应 refetch
+    await handlers[1]?.();
+    expect(mockRefetchSessionHistory).toHaveBeenCalledTimes(1);
+    expect(mockRefetchSessionHistory).toHaveBeenCalledWith(200);
+  });
 });

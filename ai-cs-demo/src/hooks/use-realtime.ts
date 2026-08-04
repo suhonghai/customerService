@@ -55,21 +55,6 @@ export function useRealtime({
   onRecover,
   getKnownMessageIds,
 }: UseRealtimeOptions) {
-  // 首次连接不算 reconnect(recovery ref:跳过补漏)
-  const isFirstConnectRef = useRef(true);
-
-  // ── 2026-08-04 修复:切 session 时把 isFirstConnectRef 重置为 true ──
-  // 切 session(用户点左侧会话列表)→ sessionKey 变化 → useRealtime 主 effect 重跑
-  // → connectRealtime 因 key 不同 disconnect 旧 socket + 建新 socket → 新 socket 触发
-  // connect 事件 → onConnectRecover handler 跑。如果 isFirstConnectRef 不重置,
-  // 它还是 false(被前一会话首次连接时 set)→ 跳过"首次"逻辑 → 进入 refetch 分支
-  // → 调 refetchSessionHistory → 与 use-chat-state 拉的 history 合计 2 次
-  // 修法:sessionKey 变化时重置 isFirstConnectRef.current = true(新 session 的
-  // "首次"连接不 refetch,前端 use-chat-state 已经从 sessions 拿 messages 渲染)
-  useEffect(() => {
-    isFirstConnectRef.current = true;
-  }, [sessionKey]);
-
   // ── 2026-08-04 修复:把不稳定的函数引用缓存到 ref ──
   // 调用方(page.tsx)每次 render 都会传新 onMessage / onRecover / getKnownMessageIds 闭包,
   // 旧实现把 onRecover / getKnownMessageIds 放进 effect deps → 每次 render effect 重跑 →
@@ -91,7 +76,21 @@ export function useRealtime({
     if (!enabled || !sessionKey) return;
     const sock = connectRealtime(sessionKey);
 
-    // 用局部 const 持有 listener 引用,cleanup 才能精确 off 掉(防 listener 累积)
+    // ── 2026-08-04 修复:isFirstConnect 移入 effect 闭包 ──
+    // 旧实现用 useRef 跨 effect 跑共享 — 在 dev mode React StrictMode 双调用 effect 下:
+    //   effect 跑 1 → register listener A
+    //   cleanup → off listener A
+    //   effect 跑 2 → register listener B(同 effect 闭包,但 isFirstConnectRef 共享 false)
+    //   sock connect 触发 → listener A 跑(闭包抓 isFirstConnectRef=true → set false → return)
+    //                       → listener B 跑(同一 ref 已被 A set false → 进 refetch 分支)
+    //                       → 额外 1 次 refetch(同 session 内不应 refetch)
+    // 改法:把 isFirstConnect 移入 effect 闭包(每次 effect 跑 new),StrictMode 2 个
+    // listener 各自抓 fresh 变量 → 都看到 true → 都跳过 refetch。
+    // 生产 WS 重连(同 effect 实例,listener 不重建)→ 第二次 connect 时 isFirstConnect
+    // 是 false(同 listener 闭包内 set 过)→ 进 refetch 分支 ✓
+    let isFirstConnect = true;
+
+    // 用局部 const 持有 listener 引用,cleanup 才能精确 off 掉(防累积)
     const onConnect = () => console.log('[realtime] connected sessionKey=', sessionKey);
     const onDisconnect = (r: unknown) => console.log('[realtime] disconnected:', r);
     const onConnectError = (e: Error) =>
@@ -104,8 +103,8 @@ export function useRealtime({
         return;
       }
       // 首次连接 → 跳过,标记后续连接为 reconnect
-      if (isFirstConnectRef.current) {
-        isFirstConnectRef.current = false;
+      if (isFirstConnect) {
+        isFirstConnect = false;
         return;
       }
       // 非首次 + 未被 server 恢复 → 拉 history diff 补漏
