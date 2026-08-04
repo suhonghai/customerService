@@ -25,9 +25,6 @@ const STORAGE_KEY = 'cs_sessions_v1';
 const ACTIVE_KEY = 'cs_active_session_v1';
 const DEFAULT_TITLE = '新会话';
 
-/** Mount 时并发拉后端 session 列表,merge 防 localStorage 丢历史(走本地 route 跨浏览器 cookie 鉴权) */
-const REMOTE_LIST_URL = '/api/customer/sessions/list';
-
 interface RemoteSession {
   sessionKey: string;
   title: string | null;
@@ -91,22 +88,39 @@ interface TextPart {
   text?: string;
 }
 
+/** fetchRemoteSessions 返回结果 — 必须显式区分"鉴权失败/网络错误"与"成功且真空",
+ * 否则 mount effect 会把 401 / 网络抖动误判为"后端被清空"→ wipe localStorage。
+ *
+ * (回归 bug:cs-session-persist — 新建会话刷新即丢,根因即此处 + mount 的 wipe 分支)
+ */
+export type RemoteFetchResult =
+  | { ok: true; sessions: RemoteSession[] }
+  | { ok: false; reason: 'auth' | 'network' | 'bad-response' };
+
 /** 拉后端 session 列表 — mount 时防 localStorage 丢历史
  *
  * 注意:必须走相对路径(`/api/customer/sessions/list`),不能拼 NEXT_PUBLIC_API_BASE_URL
  * (那是 backend 3001,这个 Next route 只在 ai-cs-demo 自己 9529 才有)
  */
-async function fetchRemoteSessions(): Promise<RemoteSession[]> {
+async function fetchRemoteSessions(): Promise<RemoteFetchResult> {
   try {
     const res = await fetch('/api/customer/sessions/list', {
       method: 'GET',
       credentials: 'include',
     });
-    if (!res.ok) return [];
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, reason: 'auth' };
+    }
+    if (!res.ok) {
+      return { ok: false, reason: 'network' };
+    }
     const json = (await res.json()) as { code?: number; data?: { sessions?: RemoteSession[] } };
-    return json.code === 0 ? (json.data?.sessions ?? []) : [];
+    if (json.code !== 0) {
+      return { ok: false, reason: 'bad-response' };
+    }
+    return { ok: true, sessions: json.data?.sessions ?? [] };
   } catch {
-    return [];
+    return { ok: false, reason: 'network' };
   }
 }
 
@@ -173,24 +187,25 @@ export function useSessions() {
         // (Admin 清表 / 首次访问都进此分支)
       }
 
-      // 2) 后端拉取,merge(backend wins 按 sessionKey 去重)
+      // 关键修复(回归 cs-session-persist):localStorage load 完成即视为 hydrated。
+      // 旧逻辑把 hydratedRef.current = true 放在 await fetchRemoteSessions() 之后,
+      // 导致 mount 完成前极快点击"+ 新会话"时,mutation 触发的 persist effect 被守卫跳过,
+      // 会话只活在内存 → 刷新即丢。
+      // 现在 load 完立即标记 hydrated,后续异步 fetch / merge 不阻塞 mutation persist。
+      hydratedRef.current = true;
+      if (!cancelled) setHydrated(true);
+
+      // 2) 后端拉取,merge(后端只补充,不 wipe、不覆盖)
       try {
         const remote = await fetchRemoteSessions();
         if (cancelled) return;
-        if (remote.length === 0 && initial.length > 0) {
-          // 后端被清空(管理员 truncate / 删账号)→ 清掉 localStorage 残留,避免 UI 仍渲染旧数据
-          // 首次进入(initial=[])不进此分支,后续会自动建一个空会话
-          persistSessions([]);
-          setSessions([]);
-          persistActiveId(null);
-          activeIdRef.current = null;
-          setActiveId(null);
-        }
-        if (remote.length > 0) {
-          // 合并:backend wins(用 backend 的 title/updatedAt 覆盖 localStorage 同 sessionKey 的)
+        if (remote.ok && remote.sessions.length > 0) {
+          // 合并:后端只补充 localStorage 没有的 session;已存在的 session 不动 localStorage
+          // (用户当前编辑的内容 / 派生标题 优先于后端标题)。
+          // 关键:不再做 wipe —— 401 / 网络错误 / 后端真空 → 一律静默保留 localStorage。
           setSessions((prev) => {
             const map = new Map(prev.map((s) => [s.remoteSessionKey ?? s.id, s]));
-            for (const r of remote) {
+            for (const r of remote.sessions) {
               const existing = map.get(r.sessionKey);
               if (!existing) {
                 // backend 有但 localStorage 没 → 新增(降级 messages=[],刷新时由 getSessionMessages 拉)
@@ -202,25 +217,15 @@ export function useSessions() {
                   updatedAt: new Date(r.updatedAt).getTime(),
                   messages: [],
                 });
-              } else {
-                // backend 命中 localStorage → 用 backend title 覆盖(更权威)
-                map.set(r.sessionKey, {
-                  ...existing,
-                  title: r.title ?? existing.title,
-                });
               }
+              // 已存在 → 保留 localStorage 的版本(localStorage 优先)
             }
-            const merged = Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt);
-            persistSessions(merged);
-            return merged;
+            return Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt);
           });
         }
       } catch {
         // 后端拉取失败,静默(保留 localStorage)
       }
-
-      hydratedRef.current = true;
-      if (!cancelled) setHydrated(true);
     })();
     return () => {
       cancelled = true;
