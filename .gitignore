@@ -58,3 +58,4 @@ logs/dev-*.log
 # 个人本地覆盖不入仓;.claude/settings.json 留空档:将来若要共享团队级配置,可以入仓。
 .claude/settings.local.json
 
+.playwright-mcp/
