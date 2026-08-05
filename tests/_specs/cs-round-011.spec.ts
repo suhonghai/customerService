@@ -94,7 +94,10 @@ describe('cs-round-011: 流式回复抗中断', () => {
     });
 
     it('Then: use-chat-state.ts 把 streaming 消息标 isInterrupted 而不是过滤掉', () => {
-      const path = resolve(ROOT, 'ai-cs-demo/src/hooks/use-chat-state.ts');
+      // cs-round-012 重构后,status 分发逻辑从 use-chat-state 移到 refetch-history.ts
+      // 的纯函数 storedToUIMessages 里。use-chat-state 只负责 diff/append,
+      // 真正的 status=2/3 → isInterrupted 标在 refetch-history.ts 兜底。
+      const path = resolve(ROOT, 'ai-cs-demo/src/lib/refetch-history.ts');
       expect(existsSync(path)).toBe(true);
       const text = readFileSync(path, 'utf-8');
       // status=2 必须标 isInterrupted(已有),且 content 为空也保留
