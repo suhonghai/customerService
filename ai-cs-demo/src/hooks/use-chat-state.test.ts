@@ -119,20 +119,37 @@ describe('useChatState', () => {
       await new Promise((r) => setTimeout(r, 10));
       await new Promise((r) => setTimeout(r, 10));
     });
-    expect(setMessages).toHaveBeenCalledOnce();
-    const arg = setMessages.mock.calls[0][0] as UIMessage[];
+    // setMessages 被调一次(prev 是默认空数组,diff/append 直接返回 restored)
+    expect(setMessages).toHaveBeenCalled();
+    const updater = setMessages.mock.calls[0][0] as (prev: UIMessage[]) => UIMessage[];
+    const arg = updater([]);
     expect(arg).toHaveLength(2);
     // 最后一条 assistant 带 isInterrupted
     const last = arg[1] as unknown as UIMessage<{ isInterrupted?: boolean }>;
     expect(last.metadata?.isInterrupted).toBe(true);
   });
 
-  it('skips /history fetch when loadedFromLocalRef.current=true (切 session 闪烁修复 #2)', async () => {
-    // 场景:RAGChat 已在 useLayoutEffect 同步从 localStorage 加载完消息
-    // → useChatState 必须跳过 fetch(消除 race flicker)
+  it('cs-round-012:fetch /history even when loadedFromLocalRef=true, append backend-only messages (no overwrite)', async () => {
+    // 场景:RAGChat 已在 useLayoutEffect 同步从 localStorage 加载(只有 user 消息),
+    // 后端 /history 返回 user + assistant — 必须 append assistant 到本地 messages,
+    // 而**不能**覆盖(否则会闪)。
     const setMessages = vi.fn();
-    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ messages: [] }), { status: 200 }),
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          messages: [
+            makeStored({ id: 1, role: 'user', parts: [{ type: 'text', text: 'q' }] }),
+            makeStored({
+              id: 2,
+              role: 'assistant',
+              status: 1,
+              content: 'hello',
+              parts: [{ type: 'text', text: 'hello' }],
+            }),
+          ],
+        }),
+        { status: 200 },
+      ),
     );
     renderHook(() =>
       useChatState({
@@ -142,16 +159,47 @@ describe('useChatState', () => {
       }),
     );
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 10));
     });
     // ensureBackendSession 必跑(WS 需要 backendSessionId)
     expect(ensureBackendSessionMock).toHaveBeenCalledWith('sess-77', 'test-visitor', null);
-    // 但 /history 必须没被调
-    const historyCalls = fetchSpy.mock.calls.filter((c) =>
-      typeof c[0] === 'string' && (c[0] as string).includes('/history'),
+    // setMessages 必须用 updater(prev => ...) 形式被调一次(diff/append)
+    expect(setMessages).toHaveBeenCalled();
+    const lastCall = setMessages.mock.calls[setMessages.mock.calls.length - 1];
+    expect(typeof lastCall[0]).toBe('function');
+    // 模拟 localStorage 已有 user 消息(id=1)→ diff 应该只 append id=2
+    const localPrev: UIMessage[] = [
+      {
+        id: '1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'q' }],
+        metadata: {},
+      } as unknown as UIMessage,
+    ];
+    const merged = (lastCall[0] as (prev: UIMessage[]) => UIMessage[])(localPrev);
+    expect(merged).toHaveLength(2);
+    expect(merged[0].id).toBe('1'); // 本地 user 还在最前
+    expect(merged[1].id).toBe('2'); // 后端 assistant 被 append
+  });
+
+  it('cs-round-012:loadedFromLocalRef=true + backend empty messages → 不调 setMessages', async () => {
+    // 场景:localStorage 有内容,后端 0 条(刚 upsert,首条消息未发出)。
+    // 必须不调 setMessages(否则空数组会覆盖本地内容 → 闪)。
+    const setMessages = vi.fn();
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ messages: [] }), { status: 200 }),
     );
-    expect(historyCalls.length).toBe(0);
-    // setMessages 也不该被调(RAGChat 已经同步加载过了)
+    renderHook(() =>
+      useChatState({
+        activeId: 'sess-empty',
+        loadedFromLocalRef: { current: true },
+        setMessages,
+      }),
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
     expect(setMessages).not.toHaveBeenCalled();
   });
 });

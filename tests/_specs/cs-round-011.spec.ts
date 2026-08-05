@@ -87,6 +87,12 @@ describe('cs-round-011: 流式回复抗中断', () => {
       expect(text).toMatch(/status\s*===?\s*4|isError|retry/i);
     });
 
+    it('Then: refetch-history.ts 暴露纯函数 storedToUIMessages(给 use-chat-state diff/append 用)', () => {
+      const path = resolve(ROOT, 'ai-cs-demo/src/lib/refetch-history.ts');
+      const text = readFileSync(path, 'utf-8');
+      expect(text).toMatch(/export function storedToUIMessages/i);
+    });
+
     it('Then: use-chat-state.ts 把 streaming 消息标 isInterrupted 而不是过滤掉', () => {
       const path = resolve(ROOT, 'ai-cs-demo/src/hooks/use-chat-state.ts');
       expect(existsSync(path)).toBe(true);
@@ -94,6 +100,20 @@ describe('cs-round-011: 流式回复抗中断', () => {
       // status=2 必须标 isInterrupted(已有),且 content 为空也保留
       expect(text).toMatch(/isInterrupted/i);
       expect(text).toMatch(/status\s*===?\s*2/i);
+    });
+
+    // cs-round-012 增补:use-chat-state 必须**永远** fetch /history(不再因 loadedFromLocalRef=true 短路),
+    // 用 setMessages(prev => diff/append) 把后端有但本地没有的 message append 上去。
+    // 短路逻辑导致刷新看不到 assistant 消息的 bug。
+    it('Then [cs-round-012]: use-chat-state.ts 不再因 loadedFromLocalRef=true 跳过 /history fetch', () => {
+      const path = resolve(ROOT, 'ai-cs-demo/src/hooks/use-chat-state.ts');
+      const text = readFileSync(path, 'utf-8');
+      // 短路逻辑已被删除:不允许出现 `if (loadedFromLocalRef.current) return;`
+      expect(text).not.toMatch(/if\s*\(\s*loadedFromLocalRef\.current\s*\)\s*return/);
+      // 一定有 diff/append 模式:setMessages((prev) => [...prev, ...newFromBackend])
+      expect(text).toMatch(/newFromBackend|localIds/i);
+      // 用 refetch-history 的纯函数做转换
+      expect(text).toMatch(/storedToUIMessages/);
     });
   });
 

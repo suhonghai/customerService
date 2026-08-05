@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import type { UIMessage } from 'ai';
-import { storedToUIMessage } from '@/lib/message-converter';
+import { storedToUIMessages } from '@/lib/refetch-history';
 import { ensureBackendSession } from '@/lib/backend-session';
 import { getVisitorId } from '@/lib/visitor';
 import { getClientUserId } from '@/lib/auth';
-import type { StoredMessage } from '@/lib/erp-admin-client';
 
 /**
  * useChatState:集中管 page.tsx 里那一堆 useState,减少主组件的噪音。
@@ -18,15 +17,24 @@ import type { StoredMessage } from '@/lib/erp-admin-client';
  *
  * 副作用(activeId 变化时):
  * 1) ensureBackendSession → setBackendSessionId(供 useRealtime 作 WS connect key)
- * 2) 若 loadedFromLocalRef.current=false(localStorage 空)→ GET /history → setMessages
+ * 2) GET /history → 与已有 messages 做 diff/append(永远跑,不只是 loadedFromLocalRef=false)
  *
- * 拆分说明(2026-08-04 切 session 闪烁修复):
- * - RAGChat 用 useLayoutEffect 同步从 localStorage 加载消息,paint 前完成,
- *   loadedFromLocalRef.current 置 true → useChatState 跳过 /history fetch
- * - 单一来源路径:有 local 用 local(同步),无 local 用 backend(异步)。
- *   消除"B.local → B.backend"两次 setMessages 的 race → 消除切 session 闪烁第 2 次。
+ * cs-round-012 修复:不再因为 loadedFromLocalRef=true 跳过 /history fetch。
+ * 之前短路逻辑导致「localStorage 有 user 消息但没 assistant 占位(session 流式被客户端
+ * 断开 → assistant 占位没 append 到 localStorage)」的场景下,刷新进入页面只看得到
+ * user 消息 — DB 里的 assistant 内容永远不会被前端拉取,即便 cs-round-011 已经把
+ * placeholder 落库 + refetch-history 标了 isStreaming/continueFromMessageId。
+ *
+ * 修法:永远 fetch /history,用 setMessages(prev => [...prev, ...backendOnly]) 做
+ * diff/append — 本地有就不覆盖(避免闪烁),只把后端新增的 message append 上去。
+ * 这样 cs-round-011 的「自动续推」机制(useAutoResumeStreaming 看到 isStreaming 才
+ * 触发)才会被真正激活。
+ *
+ * 拆分说明(2026-08-04 切 session 闪烁修复保留):
+ * - RAGChat 用 useLayoutEffect 同步从 localStorage 加载消息,paint 前完成 — 这是
+ *   paint 不闪的关键(避免 paint 旧消息再 paint 新消息)
+ * - useChatState 拿到 ref 后做 diff/append,**不覆盖**本地消息,所以 paint 不会重画
  * - ensureBackendSession 必跑:WS 需要 backendSessionId 作 connect key
- *   (与是否本地有消息无关)。
  *
  * 中断判定(保留):最后一条 assistant,若 status 2/3 → metadata.isInterrupted=true,
  * ChatView 拿到这个标记会触发静默 regenerate。
@@ -41,7 +49,12 @@ export interface UseChatStateOptions {
    * 由 useLayoutEffect 保证在 useEffect 之前(同步执行)。
    */
   loadedFromLocalRef: React.MutableRefObject<boolean>;
-  setMessages: (messages: UIMessage[]) => void;
+  /**
+   * useChat 的 setMessages — 同时支持「覆盖」(messages: UIMessage[]) 和
+   * 「updater 」(updater: prev => UIMessage[]) 两种形式。cs-round-012
+   * 用 updater 做 diff/append,避免覆盖本地有但后端缺的内容引发 paint 闪烁。
+   */
+  setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>;
 }
 
 export interface UseChatStateResult {
@@ -70,7 +83,7 @@ export function useChatState({
   >({});
   const [backendSessionId, setBackendSessionId] = useState<number | null>(null);
 
-  // activeId 变化 → upsert backend session + (可选) 拉 history
+  // activeId 变化 → upsert backend session + 总是 fetch /history 做 diff/append
   useEffect(() => {
     if (!activeId) return;
     const visitorId = getVisitorId();
@@ -83,40 +96,30 @@ export function useChatState({
         if (cancelled) return;
         setBackendSessionId(backendId);
 
-        // RAGChat 已在 useLayoutEffect 同步从 localStorage 加载 → 跳过 fetch
-        // 消除"先 B.local(同步)→ 再 B.backend(异步 150ms 后)"两次 setMessages 的 flicker
-        if (loadedFromLocalRef.current) return;
-
-        // RAGChat 没从 local 加载(可能 backend merge 来的空 session,或首问)→ fetch
+        // cs-round-012:即使 loadedFromLocalRef=true 也 fetch /history。
+        // 用 setMessages(prev => [...prev, ...backendOnly]) 做 diff/append —
+        // 不覆盖本地有内容,只把后端有但本地没的 append 上去。这样 cs-round-011
+        // 的「自动续推」(依赖 metadata.isStreaming 标)才能真正生效:
+        // - 之前流式被客户端断开 → assistant 占位没 append 到 localStorage
+        // - 刷新进入 → localStorage 只有 user 消息,后端 /history 返回 user + assistant
+        // - diff/append 把 assistant append 到 messages,isStreaming 触发 auto-resume
         const res = await fetch(`/api/sessions/${backendId}/history`);
         if (!res.ok || cancelled) return;
         const json = (await res.json()) as { messages?: unknown };
-        const stored: StoredMessage[] = Array.isArray(json.messages) ? json.messages : [];
-        if (cancelled || stored.length === 0) return;
+        if (cancelled) return;
+        const stored = Array.isArray(json.messages) ? (json.messages as Parameters<typeof storedToUIMessages>[0]) : [];
+        const restored = storedToUIMessages(stored);
+        if (cancelled) return;
 
-        let lastAssistantIdx = -1;
-        for (let i = stored.length - 1; i >= 0; i--) {
-          if (stored[i].role === 'assistant') {
-            lastAssistantIdx = i;
-            break;
-          }
-        }
-        const restored = stored.map((m, i) => {
-          const isLastAssistant = i === lastAssistantIdx;
-          const interrupted = isLastAssistant && (m.status === 2 || m.status === 3);
-          const errored = isLastAssistant && m.status === 4;
-          const ui = storedToUIMessage(m, interrupted);
-          if (!errored) return ui;
-          const errorMessage =
-            m.metadata && typeof m.metadata === 'object'
-              ? ((m.metadata as Record<string, unknown>).errorMessage as string | undefined)
-              : undefined;
-          return {
-            ...ui,
-            metadata: { ...ui.metadata, errored: true, errorMessage },
-          };
+        // diff/append:setMessages((prev) => [...prev, ...newFromBackend])
+        // 后端 0 条 → 不动(prev 已经是 localStorage 加载的,清空会闪)
+        if (restored.length === 0) return;
+        setMessages((prev) => {
+          const localIds = new Set(prev.map((m) => String(m.id)));
+          const newFromBackend = restored.filter((m) => !localIds.has(String(m.id)));
+          if (newFromBackend.length === 0) return prev;
+          return [...prev, ...newFromBackend];
         });
-        setMessages(restored as unknown as UIMessage[]);
       } catch (e) {
         console.warn('[use-chat-state] load history failed:', (e as Error).message);
       }
