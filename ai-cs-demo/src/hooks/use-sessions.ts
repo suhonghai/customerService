@@ -143,6 +143,28 @@ function deriveTitle(messages: UIMessage[], currentTitle: string): string {
 }
 
 /**
+ * 从单条 user message 派生 title(用于 draft → commitDraft 路径)。
+ * 与 deriveTitle 的差别:不依赖 currentTitle,因为 draft 状态还没有任何 session,
+ * 也就不存在"是否覆盖手动命名"的问题。
+ *
+ * 规则(与 deriveTitle 一致):
+ * - 拼接 parts 中所有 type==='text' 的 text
+ * - 过 sanitizeTitle(PII 脱敏 + 空白折叠 + 200 字上限)
+ * - 截前 30 字,> 30 加 "..."
+ * - sanitize 后为空(纯空白 / PII 抹光)→ 退回 DEFAULT_TITLE '新会话'
+ */
+export function deriveTitleFromMessage(msg: UIMessage): string {
+  const text =
+    msg.parts
+      ?.filter((p: TextPart) => p.type === 'text')
+      .map((p: TextPart) => p.text)
+      .join('') || '';
+  const trimmed = sanitizeTitle(text);
+  if (!trimmed) return DEFAULT_TITLE;
+  return trimmed.length > 30 ? trimmed.slice(0, 30) + '...' : trimmed;
+}
+
+/**
  * useSessions:多会话管理核心 hook
  *
  * 职责:
@@ -262,13 +284,20 @@ export function useSessions() {
     sessionsRef.current = sessions;
   }, [sessions]);
 
-  /** 新建会话,自动切到新会话,返回新 id */
-  const createSession = useCallback((): string => {
+  /** 新建会话,自动切到新会话,返回新 id
+   *
+   * cs-round-010:点 "+ 新会话" 不再调这个 — 改走 enterDraft() 进入 draft 态
+   * (activeId=null,无 session 入列表)。这个函数现在只在 send() 检测到
+   * activeId===null 时被调,用于把"draft 首条消息"落成真 session,
+   * 此时必须传 {title} 由首条消息文本派生(而不是硬编码 DEFAULT_TITLE),
+   * 避免侧栏再闪一下"新会话"。
+   */
+  const createSession = useCallback((opts?: { title?: string }): string => {
     const id = nanoid(10);
     const now = Date.now();
     const newSession: Session = {
       id,
-      title: DEFAULT_TITLE,
+      title: opts?.title ?? DEFAULT_TITLE,
       createdAt: now,
       updatedAt: now,
       messages: [],
@@ -278,6 +307,17 @@ export function useSessions() {
     setSessions((prev) => [newSession, ...prev]);
     setActiveId(id);
     return id;
+  }, []);
+
+  /** 进入 draft 态(activeId=null,sessions 列表不变)。
+   *
+   * cs-round-010:这是 "+ 新会话" 按钮的真实入口。点 + 不再立刻 nanoid 建壳,
+   * 只切到 draft 模式,展示欢迎页;真正的 session 创建推迟到用户发出首条消息时。
+   * 再次 enterDraft() 是 no-op(已经 draft)。
+   */
+  const enterDraft = useCallback(() => {
+    activeIdRef.current = null;
+    setActiveId(null);
   }, []);
 
   /** 删除会话(至少保留 1 个);删的是 active → 自动切到最新一个
@@ -399,6 +439,7 @@ export function useSessions() {
     activeSession,
     hydrated,
     createSession,
+    enterDraft,
     deleteSession,
     renameSession,
     switchSession,
