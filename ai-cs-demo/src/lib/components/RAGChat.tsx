@@ -3,14 +3,13 @@
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, FormEvent } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useChatWithErrors } from '@/hooks/use-chat-with-errors';
-import { useSessions } from '@/hooks/use-sessions';
+import { useSessions, deriveTitleFromMessage } from '@/hooks/use-sessions';
 import { useChatState } from '@/hooks/use-chat-state';
 import { useRealtime, useRealtimeDisconnectOnUnmount } from '@/hooks/use-realtime';
 import { getVisitorId } from '@/lib/visitor';
 import { getClientUserId, getClientCustomerId, logoutRequest } from '@/lib/auth';
 import { scanStreamError } from '@/lib/stream-error-scanner';
 import { refetchSessionHistory } from '@/lib/refetch-history';
-import { shouldCreateNewSession, findReusableEmptySession } from '@/lib/session-policy';
 import { withCache } from '@/lib/with-cache';
 import { dedupeMessagesByContent } from '@/lib/dedupe-messages';
 import type { UserFacingError, UserFacingErrorActionType } from '@/lib/errors';
@@ -64,6 +63,7 @@ export function RAGChat() {
     activeSession,
     hydrated: sessionsReady,
     createSession,
+    enterDraft,
     deleteSession,
     renameSession,
     switchSession,
@@ -334,23 +334,14 @@ export function RAGChat() {
   }
   function handleCreateSession() {
     stop();
-    // 0) reuse:sidebar 里如果有别的空会话,直接跳过去,避免每点 + 都累积空壳
-    //    业界惯例(ChatGPT / Claude.ai):点 + 在空 shell 上是 no-op
-    const empty = findReusableEmptySession(sessions, activeId);
-    if (empty) {
-      if (empty.id !== activeId) {
-        switchSession(empty.id);
-        router.replace(`/chat/${empty.id}`);
-      }
-      return;
-    }
-    // 当前 active 已经是空会话 → 别再造壳(no-op),避免 sidebar 被空壳污染
-    // (用户连点 "+ 新会话" / 误触 / 双击 等场景)
-    // 用 activeSession.messages 而不是 useChat.messages — 后者在 activeId 切换后
-    // 有 1-2 帧才被清空,期间会误判为「有内容」连续建壳
-    if (!shouldCreateNewSession(activeId, activeSession?.messages ?? [])) return;
-    const newId = createSession();
-    if (newId) router.replace(`/chat/${newId}`);
+    // cs-round-010:点 "+ 新会话" 不再立刻 nanoid 建壳 — 改走 enterDraft()。
+    // activeId 置 null,sessions 列表不变,WelcomeMessage 自动浮现,
+    // 真正的 session 创建推迟到 send() 检测到 activeId===null 时(用首条消息派生 title)。
+    // 已在 draft 态再点 + 是 no-op(enterDraft 幂等)。
+    enterDraft();
+    // URL 回根(同 delete-active 行为),避免 useParams 仍指向上一个 sessionId
+    // 触发路由同步 effect 把 activeId 又切回去
+    router.replace('/');
   }
   function handleDeleteSession(id: string) {
     stop();
@@ -392,11 +383,14 @@ export function RAGChat() {
     // listOrdersBySession 看到 customerId 非空就改走 Order.customer_id 过滤。
     const userId = getClientUserId();
     const customerId = getClientCustomerId();
-    // W11:0 会话空态下(activeId=null)发消息 → 先 createSession 拿真 sessionKey,
-    // 让侧栏出现这个会话 + 与后端 cs_session.sessionKey 对齐(原 anon-${Date.now()} 是孤儿后端用完即弃)
+    // cs-round-010:draft 态(activeId=null)发首条消息 → 真创建 session,
+    // title 由首条消息文本派生(过 sanitizeTitle 脱敏 + 截 30 字)。
+    // 这样侧栏出现的就是 "查一下我的订单" 而不是硬编码 "新会话"。
     let currentActiveId = activeId;
     if (!currentActiveId) {
-      currentActiveId = createSession();
+      const userMsg = { role: 'user' as const, parts: [{ type: 'text' as const, text }] };
+      const title = deriveTitleFromMessage(userMsg as unknown as Parameters<typeof deriveTitleFromMessage>[0]);
+      currentActiveId = createSession({ title });
     }
     sendMessage(
       { text },
