@@ -67,6 +67,8 @@ export class InternalController {
     @Query('limit') limit?: string,
   ): Promise<{
     sessions: Array<{
+      // cs-round-014:前端 /chat/[sessionId] 路由靠这个数字 id,必带
+      id: number;
       sessionKey: string;
       title: string | null;
       visitorId: string;
@@ -131,6 +133,21 @@ export class InternalController {
     @Body() dto: UpdateMessageDto,
   ) {
     return this.internalService.updateMessage(id, msgId, dto);
+  }
+
+  /**
+   * cs-round-011:GET /api/internal/cs/sessions/:id/messages/:msgId — 拉单条消息
+   *   续推接口需要:continueFromMessageId 路径下,服务端先 getMessage 拿到
+   *   已有 partial content + parts,把续推起点对齐。
+   *   404 → status=4xx 业务错误,客户端 catch 后降级。
+   */
+  @Get('sessions/:id/messages/:msgId')
+  @ApiOperation({ summary: '拉单条 message(cs-round-011 续推接口需要)' })
+  async getMessage(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('msgId', ParseIntPipe) msgId: number,
+  ) {
+    return this.internalService.getMessage(id, msgId);
   }
 
   /**

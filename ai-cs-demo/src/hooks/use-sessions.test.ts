@@ -1,118 +1,206 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import { useSessions } from './use-sessions';
-
-const STORAGE_KEY = 'cs_sessions_v1';
-const ACTIVE_KEY = 'cs_active_session_v1';
-
-function seedSessionInStorage(id: string, title = '已有会话') {
-  const session = {
-    id,
-    title,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    messages: [],
-  };
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify([session]));
-  window.localStorage.setItem(ACTIVE_KEY, id);
-}
-
-function readSessionsFromStorage(): Array<{ id: string }> | null {
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  return raw ? (JSON.parse(raw) as Array<{ id: string }>) : null;
-}
-
 /**
- * Bug:小服客服新建会话后刷新页面,会话消失。
+ * cs-round-013:useSessions 数据来自后端 list 接口,不再 seed localStorage。
  *
- * 根因(代码已坐实):
- *   use-sessions.ts mount effect 把"后端返空 / 鉴权失败"统一当作"后端真空",
- *   然后无条件清空 localStorage(`cs_sessions_v1`),导致用户新建的会话被抹掉。
- *   同时 persist 走 effect + hydratedRef 守卫,极快点击时 hydrate 未完成
- *   → 跳过 persist,会话只活在内存。
- *
- * 这些 spec 锁定"刷新后会话必须保留"的外部可观察行为,防回归。
+ * Spec 覆盖:
+ * - mount 调 /api/customer/sessions/list,sessions 来自接口
+ * - 后端 401/失败 → sessions 空数组,无 wipe(因根本不写 localStorage)
+ * - createSession 走后端 upsert 拿 backendId,返回 { sessionKey, backendId }
+ * - deleteSession 走后端 DELETE,失败抛 Error
  */
-describe('useSessions — refresh persistence (cs-session-persist bug)', () => {
-  beforeEach(() => {
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+function mockListOnly(
+  sessions: Array<{ id: number; sessionKey: string; title: string; messageCount: number; updatedAt: string; startedAt: string }> = [],
+) {
+  return vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+    const url = typeof input === 'string' ? input : (input as Request).url;
+    if (url.includes('/api/customer/sessions/list')) {
+      return new Response(
+        JSON.stringify({ code: 0, data: { sessions } }),
+        { status: 200 },
+      );
+    }
+    if (url.includes('/api/sessions/upsert')) {
+      return new Response(JSON.stringify({ id: 999 }), { status: 200 });
+    }
+    return new Response('not mocked', { status: 500 });
+  });
+}
+
+describe('useSessions — cs-round-013 (backend-driven, no localStorage)', () => {
+  beforeEach(async () => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+    // 重置模块 — use-sessions.ts 在 module-level 调 withCache 把 fetchRemoteSessions
+    // 包成单例;测试间必须重置,否则后续测试拿到首次调用的 cached promise。
+    vi.resetModules();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('Scenario 1: 后端 /api/customer/sessions/list 返 401(鉴权失败)→ 不应 wipe localStorage 已存在的会话', async () => {
-    // Given — 刷新前 localStorage 已有会话(用户当前设备上创建过)
-    seedSessionInStorage('existing-session-1');
+  // 每个 test 重新 import useSessions(拿 resetModules 后的新模块引用)
+  async function freshUseSessions() {
+    const mod = await import('./use-sessions');
+    return mod.useSessions;
+  }
 
-    // And — 后端 list 返 401(已登录但 token 过期 / cookie 失效,模拟 wipe 触发条件)
-    vi.spyOn(global, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ code: 10001, message: '未登录' }), { status: 401 }),
-    );
+  it('mount 时 fetch /api/customer/sessions/list,渲染 sessions', async () => {
+    // Given — 后端返 1 个会话
+    const remote = [
+      {
+        id: 100,
+        sessionKey: 'cs-abc',
+        title: '测试会话',
+        messageCount: 5,
+        updatedAt: new Date().toISOString(),
+        startedAt: new Date(Date.now() - 86_400_000).toISOString(),
+      },
+    ];
+    mockListOnly(remote);
 
-    // When — 重新挂载 hook(等价于用户刷新页面)
-    const { result } = renderHook(() => useSessions());
-    // 等异步 fetch + merge 完成
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
-    });
-
-    // Then — localStorage 中的会话必须依然存在(401 ≠ "后端真空",不能 wipe)
-    const persisted = readSessionsFromStorage();
-    expect(persisted, 'localStorage 不应被 401 触发 wipe').not.toBeNull();
-    expect(persisted).toHaveLength(1);
-    expect(persisted![0].id).toBe('existing-session-1');
-
-    // And — hook state 应当还原该会话
-    expect(result.current.sessions.map((s) => s.id)).toContain('existing-session-1');
-  });
-
-  it('Scenario 2: 后端返 200 但 sessions=[] → localStorage 优先,不应 wipe 本地会话', async () => {
-    // Given — 刷新前 localStorage 有会话(后端 list 暂时没同步 / 新设备首次拉取 / upsert 失败)
-    seedSessionInStorage('local-only-session');
-
-    // And — 后端 list 返 200 但空(后端真空 — 但不代表 localStorage 该被清)
-    vi.spyOn(global, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ code: 0, data: { sessions: [] } }), { status: 200 }),
-    );
-
-    // When — 重新挂载
+    // When
+    const useSessions = await freshUseSessions();
+    const { renderHook, act } = await import('@testing-library/react');
     const { result } = renderHook(() => useSessions());
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));
     });
 
-    // Then — localStorage 优先:本地会话必须保留(localStorage 是单一真相,后端只是补充)
-    const persisted = readSessionsFromStorage();
-    expect(persisted, '后端真空不应导致 localStorage 被 wipe').not.toBeNull();
-    expect(persisted).toHaveLength(1);
-    expect(persisted![0].id).toBe('local-only-session');
-    expect(result.current.sessions.map((s) => s.id)).toContain('local-only-session');
+    // Then
+    expect(result.current.sessions).toHaveLength(1);
+    expect(result.current.sessions[0].id).toBe(100);
+    expect(result.current.sessions[0].messageCount).toBe(5);
+    expect(result.current.hydrated).toBe(true);
   });
 
-  it('Scenario 3: mount 完成前点击 "+ 新会话" → 新会话必须写入 localStorage(不被 hydrate guard 跳过)', async () => {
-    // Given — localStorage 已有 1 个会话,后端 401(模拟刷新场景)
-    seedSessionInStorage('pre-existing');
+  it('后端返 401 → sessions 空数组,不再 wipe 任何东西', async () => {
+    // Given — 后端 401
     vi.spyOn(global, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ code: 10001, message: '未登录' }), { status: 401 }),
     );
 
-    // When — 重新挂载,并在 mount 异步完成**之前**立刻点新建会话
+    // When
+    const useSessions = await freshUseSessions();
+    const { renderHook, act } = await import('@testing-library/react');
     const { result } = renderHook(() => useSessions());
-    // 立即点击,不等待 fetchRemoteSessions 完成 — 模拟用户极快点击
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    // Then — 空数组 + hydrated=true(用于 UI 显示"还没有会话")
+    expect(result.current.sessions).toHaveLength(0);
+    expect(result.current.hydrated).toBe(true);
+    // And — 没有 localStorage 写入
+    expect(window.localStorage.getItem('cs_sessions_v1')).toBeNull();
+  });
+
+  it('createSession({ title }) → 走后端 upsert,返 { sessionKey, backendId },列表 prepend', async () => {
+    // Given — 空列表
+    mockListOnly([]);
+    const useSessions = await freshUseSessions();
+    const { renderHook, act } = await import('@testing-library/react');
+    const { result } = renderHook(() => useSessions());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    // When — 进入 draft → 创建
     act(() => {
-      result.current.createSession();
+      result.current.enterDraft();
     });
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 30));
+    let tempId = 0;
+    let sessionKey = '';
+    act(() => {
+      const r = result.current.createSession({ title: '查订单' });
+      tempId = r.tempId;
+      sessionKey = r.sessionKey;
     });
 
-    // Then — 新会话必须落 localStorage(不能因为 hydratedRef 守卫跳过 persist)
-    const persisted = readSessionsFromStorage();
-    expect(persisted, 'createSession 必须触发 persist,不能依赖 hydrate 时序').not.toBeNull();
-    expect(persisted!.length, '应有原会话 + 新建会话').toBeGreaterThanOrEqual(2);
-    expect(result.current.sessions.length).toBeGreaterThanOrEqual(2);
+    // Then — 同步 setActiveId(tempId 负数),title 写入,upsert 异步进行
+    expect(tempId).toBeLessThan(0); // 负数临时 id
+    expect(sessionKey).toMatch(/^cs-/); // 自动生成 sessionKey
+    expect(result.current.sessions).toHaveLength(1);
+    expect(result.current.sessions[0].id).toBe(tempId);
+    expect(result.current.sessions[0].title).toBe('查订单');
+    expect(result.current.activeId).toBe(String(tempId));
+
+    // And — 等异步 upsert 完成(tempId 替换为 backendId=999)
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(result.current.activeId).toBe('999');
+    expect(result.current.sessions[0].id).toBe(999);
+  });
+
+  it('deleteSession(id) → 走后端 DELETE,失败抛 Error', async () => {
+    // Given — 1 个会话,DELETE 返 500
+    vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url;
+      if (init?.method === 'DELETE') {
+        return new Response(JSON.stringify({ error: 'fail' }), { status: 500 });
+      }
+      if (url.includes('/api/customer/sessions/list')) {
+        return new Response(
+          JSON.stringify({
+            code: 0,
+            data: {
+              sessions: [
+                {
+                  id: 50,
+                  sessionKey: 'cs-del',
+                  title: '待删',
+                  messageCount: 1,
+                  updatedAt: new Date().toISOString(),
+                  startedAt: new Date().toISOString(),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response('not mocked', { status: 500 });
+    });
+
+    const useSessions = await freshUseSessions();
+    const { renderHook, act } = await import('@testing-library/react');
+    const { result } = renderHook(() => useSessions());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    // When + Then — 抛 Error,前端 list 不变
+    await act(async () => {
+      await expect(result.current.deleteSession('50')).rejects.toThrow(/fail|HTTP 500/);
+    });
+    expect(result.current.sessions).toHaveLength(1); // 没被删
+  });
+
+  it('renameSession(id, title) → 更新 sessions 列表中对应 title', async () => {
+    mockListOnly([
+      {
+        id: 1,
+        sessionKey: 'cs-1',
+        title: '原标题',
+        messageCount: 0,
+        updatedAt: new Date().toISOString(),
+        startedAt: new Date().toISOString(),
+      },
+    ]);
+    const useSessions = await freshUseSessions();
+    const { renderHook, act } = await import('@testing-library/react');
+    const { result } = renderHook(() => useSessions());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    act(() => {
+      result.current.renameSession('1', '新标题');
+    });
+
+    expect(result.current.sessions[0].title).toBe('新标题');
   });
 });

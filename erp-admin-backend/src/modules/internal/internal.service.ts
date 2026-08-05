@@ -132,6 +132,7 @@ export class InternalService {
     const rows = await this.prisma.csSession.findMany({
       where,
       select: {
+        id: true, // cs-round-014:前端 /chat/[sessionId] 路由靠这个数字 id 跳转,必须 select
         sessionKey: true,
         visitorId: true,
         userId: true,
@@ -144,6 +145,7 @@ export class InternalService {
       take: limit,
     });
     return rows.map((r) => ({
+      id: r.id, // cs-round-014:必带数字主键,前端 sidebar 切 session 走 router.replace(`/chat/${id}`)
       sessionKey: r.sessionKey,
       title: r.visitorName,
       visitorId: r.visitorId,
@@ -300,6 +302,21 @@ export class InternalService {
         status: dto.status ?? undefined,
       },
     });
+  }
+
+  // ============================================================
+  // cs-round-011:GET /api/internal/cs/sessions/:id/messages/:msgId — 拉单条
+  //   续推接口 helper:continueFromMessageId 路径要先拿到已有 partial content。
+  //   校验必须属于该 session(防 IDOR)。
+  // ============================================================
+  async getMessage(sessionId: number, msgId: number) {
+    const msg = await this.prisma.csMessage.findFirst({
+      where: { id: msgId, sessionId },
+    });
+    if (!msg) {
+      throw new BizException(BizCode.NOT_FOUND, '消息不存在');
+    }
+    return msg;
   }
 
   // ============================================================

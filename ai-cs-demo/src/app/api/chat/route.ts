@@ -13,6 +13,110 @@ import { search } from '@/lib/rag';
 import { createMcpStdioClient } from '@/lib/agent/mcp-client';
 import { getErpAdminClient } from '@/lib/erp-admin-client';
 
+/**
+ * cs-round-011:流式回复抗中断 — 后端生成任务和 SSE 连接解耦 +
+ * continueFromMessageId 续推接口 + withStreamRetry 临时抖动重试。
+ *
+ * 关键约束(W11 + cs-round-011):
+ *  1. streamText **不**绑 req.signal — client 断开后服务端继续生成,
+ *     onFinish / onError 仍会落库 status=1 或 status=4。
+ *     这意味着 generationPromise 在 SSE controller 关闭后仍能跑完。
+ *  2. continueFromMessageId 路径:跳过创建新 placeholder,直接把流 append 到
+ *     已有 status=2/4 的 message 上;服务端 accumulatedText 从 existing.content
+ *     开始累积(不是从零)。前端 useChat 通过 stream chunks 拿到 delta 后
+ *     setMessages 把新的 text append 到 id=continueFromMessageId 的 message 上。
+ *  3. withStreamRetry 处理 streamText 全程抛错的临时场景(网络闪断 / 5xx /
+ *     transient timeout),最多重试 2 次(无感),持续失败转 onError 标 status=4。
+ */
+
+// 续推请求的 body 字段类型(cs-round-011)
+interface ChatBodyExtend {
+  message?: string;
+  messages?: UIMessage[];
+  sessionId?: string;
+  sessionKey?: string;
+  visitorId?: string;
+  userId?: number | null;
+  customerId?: number | null;
+  topK?: number;
+  /** cs-round-011:续推起点。提供时跳过创建 placeholder,改成 PATCH 这条已有 message */
+  continueFromMessageId?: number;
+}
+
+/**
+ * withStreamRetry:把 streamText 全程跑完的过程包一层重试。
+ * - 区分 transient(可重试)vs permanent(立即抛)
+ * - transient 错误:网络层 / AI 5xx / 模型超时(超 5xx/timeout 关键字)
+ * - permanent:401 / 400 / invalid 配置
+ * - 重试 2 次(200ms → 800ms 退避),全失败抛回上层
+ *
+ * 注:streamText 返回 result 对象,这里用「重跑整个 streamText」方式实现 —
+ * 每个 attempt 内部都重新发起 streamText,完全独立的连接 + 累积 + PATCH。
+ * 简单清晰,plain async 实现,**不引第三方 lib**(brief 红线)。
+ */
+async function withStreamRetry<T>(
+  fn: () => Promise<T>,
+  opts: { retries?: number; onAttempt?: (n: number) => void } = {},
+): Promise<T> {
+  const retries = opts.retries ?? 2;
+  const delays = [200, 800]; // 退避序列
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    opts.onAttempt?.(attempt);
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const retryable = isTransientStreamError(e);
+      const hasMore = attempt < retries;
+      if (!retryable || !hasMore) throw e;
+      const ms = delays[attempt] ?? 800;
+      console.warn(
+        `[chat] transient stream error (attempt ${attempt + 1}/${retries + 1}),retry in ${ms}ms:`,
+        (e as Error)?.message ?? String(e),
+      );
+      await new Promise<void>((r) => setTimeout(r, ms));
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * 判断错误是否「可重试」(transient)。
+ * - 401 / 403 / 400 / NOT_FOUND / missing key → permanent,立即失败
+ * - 5xx / ECONNRESET / ETIMEDOUT / network / timeout → transient,可重试
+ */
+function isTransientStreamError(e: unknown): boolean {
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
+  if (!msg) return true; // 空 message = 网络层截断,默认可重试
+  // permanent 优先判定
+  if (
+    msg.includes('401') ||
+    msg.includes('403') ||
+    msg.includes('400') ||
+    msg.includes('unauthorized') ||
+    msg.includes('forbidden') ||
+    msg.includes('bad request') ||
+    msg.includes('invalid api key') ||
+    msg.includes('no active ai config')
+  ) {
+    return false;
+  }
+  // transient 关键字
+  return (
+    msg.includes('5') || // 5xx 通用
+    msg.includes('econnreset') ||
+    msg.includes('etimedout') ||
+    msg.includes('econnrefused') ||
+    msg.includes('enotfound') ||
+    msg.includes('network') ||
+    msg.includes('timeout') ||
+    msg.includes('aborted') ||
+    msg.includes('upstream') ||
+    msg.includes('fetch failed')
+  );
+}
+
 export const runtime = 'nodejs';
 export const maxDuration = 60; // 升级:Agent 可能多步,给足时间
 
@@ -48,17 +152,14 @@ interface TextPart {
  */
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
-      message?: string;
-      messages?: UIMessage[];
-      sessionId?: string;
-      sessionKey?: string; // 前端稳定的会话键(per browser,持久),upsert 用
-      visitorId?: string; // 前端稳定访客 id(localStorage 兜底),upsert 用
-      userId?: number | null; // V1 S5:已登录用户的 userId,落到 cs_session.userId
-      customerId?: number | null; // W11:C 端 CsCustomer.id,落到 cs_session.customerId(和 userId 互斥)
-      topK?: number;
-    };
+    const body = (await req.json()) as ChatBodyExtend;
     const topK = body.topK ?? 3;
+
+    // cs-round-011:continueFromMessageId 续推初始化变量(在 session setup 块里赋值,
+    // 后面的流式 PATCH 阶段读 → 必须先声明,temporal dead zone)。
+    let continueFromInitialText = '';
+    let continueFromInitialParts: unknown[] = [];
+    let continueFromStatus = 0;
 
     // 兼容两种 payload shape:
     //  1) { messages: UIMessage[] } — AI SDK 6.x 客户端(多轮历史)
@@ -183,22 +284,72 @@ export async function POST(req: Request) {
         }
       }
 
-      // 创建 assistant placeholder(空内容,status=2 streaming)
-      // 流式期间节流 PATCH 这个 id,流结束 PATCH status=1 done。
-      // 兜底:如果 placeholder 创建失败,记 -1,后续 PATCH 跳过(不影响流给浏览器)。
+      // cs-round-011:continueFromMessageId 路径 — 跳过创建 placeholder,
+      // 直接把流 append 到已有 status=2/4 的 message 上(用户刷新页面或点重试时,
+      // 服务端续推同一条 message,前端 setMessages 按 id merge)。
       //
-      // 注意:必须在 handoff 检测之后 —— ack 路径已经 return,不会走到这里。
-      try {
-        const placeholder = await erp.appendMessage(sessionId, {
-          role: 'assistant',
-          content: '',
-          parts: [],
-          status: 2,
-        });
-        assistantMsgId = placeholder.id;
-      } catch (e) {
-        console.warn('[chat] assistant placeholder create failed:', (e as Error).message);
-        assistantMsgId = -1;
+      // 校验:必须是 assistant role,且 status ∈ {2 streaming, 4 error} —
+      // status=1 已完成 / status=3 已中断(history → regenerate 时才续推,但
+      // 那条路径走 status=2 经 refresh)。其他值 400 拒绝。
+      if (typeof body.continueFromMessageId === 'number' && body.continueFromMessageId > 0) {
+        try {
+          const existing = await erp.getMessage(sessionId, body.continueFromMessageId);
+          if (!existing) {
+            return new Response(
+              JSON.stringify({ error: 'continueFromMessageId 不存在该会话' }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          if (existing.role !== 'assistant') {
+            return new Response(
+              JSON.stringify({ error: 'continueFromMessageId 必须指向 assistant role' }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          if (existing.status !== 2 && existing.status !== 4) {
+            return new Response(
+              JSON.stringify({
+                error: `continueFromMessageId 当前 status=${existing.status},仅允许续推 2(streaming)/4(error)`,
+              }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          assistantMsgId = existing.id;
+          // 初始化累积变量为已有 partial content/parts — LLM 接着写不是从零开始
+          continueFromInitialText = existing.content || '';
+          continueFromInitialParts = Array.isArray(existing.parts) ? existing.parts : [];
+          continueFromStatus = existing.status;
+          console.log(
+            `[chat] continueFromMessageId=${assistantMsgId} status=${existing.status} contentLen=${(existing.content || '').length} → 续推`,
+          );
+        } catch (e) {
+          console.error(
+            '[chat] continueFromMessageId lookup failed:',
+            (e as Error).message,
+          );
+          return new Response(
+            JSON.stringify({ error: 'continueFromMessageId lookup failed' }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+      } else {
+        // 创建 assistant placeholder(空内容,status=2 streaming)
+        // 流式期间节流 PATCH 这个 id,流结束 PATCH status=1 done。
+        // 兜底:如果 placeholder 创建失败,记 -1,后续 PATCH 跳过(不影响流给浏览器)。
+        //
+        // 注意:必须在 handoff 检测之后 —— ack 路径已经 return,不会走到这里。
+        try {
+          const placeholder = await erp.appendMessage(sessionId, {
+            role: 'assistant',
+            content: '',
+            parts: [],
+            status: 2,
+          });
+          assistantMsgId = placeholder.id;
+        } catch (e) {
+          console.warn('[chat] assistant placeholder create failed:', (e as Error).message);
+          assistantMsgId = -1;
+        }
       }
     } catch (e) {
       console.error('[chat] session setup failed:', e);
@@ -319,14 +470,21 @@ ${contextBlock}`;
       count: toolList.length,
     };
 
+    // cs-round-011:continueFromMessageId 续推初始化变量在函数顶部已声明,
+    // 上面 continueFromMessageId 路径已写入。下面直接读。
+
     // ============= 流式期间累积 + 节流 PATCH(服务端持久化核心) =============
     // 累积所有 text-delta,每 500ms PATCH 一次(status=2 streaming)。
     // 流结束 / abort → 取消 timer,最终 PATCH(status=1 normal 或 status=3 interrupted)。
     // 注意:onChunk callback 是 blocking(SDK 等 promise resolve 才继续),所以 PATCH
     //   调 fire-and-forget,不 await — 避免拖慢流。
-    let accumulatedText = '';
+    // cs-round-011:continueFromMessageId 时,初始化为已有 partial content + parts。
+    let accumulatedText = continueFromInitialText;
     let accumulatedReasoning = ''; // 独立于 accumulatedText,reasoning 走自己字段
-    const accumulatedParts: Array<Record<string, unknown>> = [];
+    // cs-round-011:continueFromMessageId 时,把已有 parts 直接搬过来当起点(避免重复 tool-call / 已完成推理被覆盖)
+    const accumulatedParts: Array<Record<string, unknown>> = [
+      ...(continueFromInitialParts as Array<Record<string, unknown>>),
+    ];
     let accumulatedTextPart: { type: 'text'; text: string } | null = null;
     const accumulatedMetadata: {
       toolCalls?: Array<Record<string, unknown>>;
@@ -429,7 +587,11 @@ ${contextBlock}`;
       };
     });
 
-    const result = streamText({
+    // cs-round-011:streamText 包一层 withStreamRetry — 临时抖动(网络闪断 / 5xx /
+    //   transient timeout)自动重试 2 次,持续失败转 onError 标 status=4。
+    //   onChunk/onFinish 闭包里有累积变量,每个 attempt 必须重新 fresh,
+    //   否则重试会把第一次的 accumulatedText double-write。
+    const buildStream = async () => streamText({
       model: qwenChat,
       // AI SDK 6.x convertToModelMessages 入参是 Omit<UIMessage, "id">[]。
       // sanitizedMessages 是从 UIMessage[] map 出来的,需要手动 narrow 类型。
@@ -443,6 +605,8 @@ ${contextBlock}`;
       // W11:不绑 req.signal — 关 tab / 断网 时 client disconnect 不该让 server 放弃
       // 已经跑出的 LLM 答案。让 streamText 自然跑完,onFinish 触发 PATCH status=1,
       // 下次进 session 直接看到完整内容,而不是「继续生成」按钮。
+      // cs-round-011:这同时也是 generationPromise 与 SSE 解耦的基础:
+      //   即便 SSE controller 关闭了,generationPromise 仍能跑完。
       // Trade-off:UI 「停止」按钮只能停前端 streaming;server 仍跑完(LLM token 省不下)。
       // 真正 abort 需要单独端点 + redis 标记,session scope 太重,本阶段不做。
       onChunk: ({ chunk }) => {
@@ -530,6 +694,57 @@ ${contextBlock}`;
         await lastPatchInFlight;
       },
     });
+
+    // cs-round-011:retry wrapper 调用 streamText 真正构造一次 — 重试场景下
+    //   builder 每次都 fresh,闭包 state(accumulatedText 等)跟着新 attempt 重置。
+    //   但 accumulatedText 已经被 continueFromInitialText 初始化过,我们要保留
+    //   重试仍 PATCH 同一条 message id + 已有文本前缀,避免 retry 把已有
+    //   partial 内容覆盖丢。所以用 attempt-scoped closure,但 accumulatedText
+    //   / accumulatedParts 保留 continueFrom 起点。
+    // cs-round-011:retry wrapper 调用 streamText 真正构造一次 — 重试场景下
+    //   builder 每次都 fresh,闭包 state(accumulatedText 等)跟着新 attempt 重置。
+    //   但 accumulatedText 已经被 continueFromInitialText 初始化过,我们要保留
+    //   重试仍 PATCH 同一条 message id + 已有文本前缀,避免 retry 把已有
+    //   partial 内容覆盖丢。所以用 attempt-scoped closure,但 accumulatedText
+    //   / accumulatedParts 保留 continueFrom 起点。
+    // 用宽松 any 标注 buildStream return — AI SDK 6.x streamText 内部泛型嵌套
+    //   太深,手动推断会引出 StepResult 不兼容(inference 噪音),这里只用到
+    //   .toUIMessageStream()/.text,两者类型不依赖 tool 泛型。
+    /* eslint-disable @typescript-eslint/no-explicit-any -- streamText 内部泛型导致 StepResult 嵌套不兼容,这里放宽 */
+    const result: any = await withStreamRetry<any>(() => buildStream() as any, {
+      retries: 2,
+      onAttempt: (n: number) => {
+        if (n === 0) return; // 第一次不 warn
+        // 重试时 accumulatedText **清回 continueFromInitialText**(否则旧 attempt 的
+        //   delta 会和新 attempt 的 delta 叠到一起 double-write)
+        if (accumulatedText !== continueFromInitialText) {
+          accumulatedText = continueFromInitialText;
+        }
+        // accumulatedParts 同样从 continueFromInitialParts 起,清掉旧 attempt
+        //   累积的 tool/reasoning parts(由后续 onChunk 重新 push)。
+        // 注意:不要直接 reassign 闭包外部的 accumulatedParts 数组引用(onChunk/onStep
+        //   在旧 attempt 已经持有的引用上 patch),改用 splice 清空。
+        if (accumulatedParts.length > (continueFromInitialParts as unknown[]).length) {
+          accumulatedParts.splice(
+            (continueFromInitialParts as unknown[]).length,
+            accumulatedParts.length - (continueFromInitialParts as unknown[]).length,
+          );
+        }
+        accumulatedMetadata.toolCalls = [];
+        accumulatedMetadata.toolCallCount = 0;
+        accumulatedMetadata.lastStep = undefined;
+        chunkCount = 0;
+        lastChunkType = '';
+        // accumulatedTextPart 是旧 attempt text-delta 创建的 ref,清掉让 onChunk 重建
+        accumulatedTextPart = null;
+        // 上次 attempt 的 PATCH timer 也要清,避免旧 timer 把 stale state 写进去
+        if (patchTimer) {
+          clearTimeout(patchTimer);
+          patchTimer = null;
+        }
+      },
+    });
+    /* eslint-enable @typescript-eslint/no-explicit-any */
 
     // ============= 包装 UI 流(沿用 W3-4 的 message-metadata 机制) =============
     const stream = createUIMessageStream({

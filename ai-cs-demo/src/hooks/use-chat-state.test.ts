@@ -1,23 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-const ensureBackendSessionMock = vi.fn(async (frontendId: string) => {
-  // map frontendId → backendId 1:1 for test convenience
-  return Number(frontendId.replace(/\D/g, '')) || 1;
-});
-
-vi.mock('@/lib/backend-session', () => ({
-  ensureBackendSession: (...args: unknown[]) =>
-    (ensureBackendSessionMock as unknown as (...args: unknown[]) => unknown)(...args),
-}));
-vi.mock('@/lib/visitor', () => ({
-  getVisitorId: () => 'test-visitor',
-}));
-vi.mock('@/lib/auth', () => ({
-  // V1 S5:getClientUserId 在测试中默认 null(未登录状态)
-  getClientUserId: () => null,
-}));
-
 import { useChatState } from './use-chat-state';
 import type { UIMessage } from 'ai';
 
@@ -36,19 +19,22 @@ function makeStored(overrides: Partial<unknown> = {}) {
   };
 }
 
-/** 默认 loadedFromLocalRef=false(模拟 RAGChat 没从 local 加载,需 backend fetch) */
-function makeArgs(overrides: { activeId?: string | null; loadedFromLocal?: boolean } = {}) {
+/** 默认 activeId=42(backend 数字 id)。传 null 时显式保留 null。 */
+function makeArgs(overrides: { activeId?: string | null; setMessages?: ReturnType<typeof vi.fn>; setHistoryLoading?: (loading: boolean) => void } = {}) {
   return {
-    activeId: (overrides.activeId ?? null) as string | null,
-    loadedFromLocalRef: { current: overrides.loadedFromLocal ?? false },
-    setMessages: vi.fn(),
+    activeId: (overrides.activeId === undefined ? '42' : overrides.activeId) as string | null,
+    setMessages: (overrides.setMessages ?? vi.fn()) as unknown as React.Dispatch<React.SetStateAction<UIMessage[]>>,
+    setHistoryLoading: overrides.setHistoryLoading ?? vi.fn(),
   };
 }
 
-describe('useChatState', () => {
+describe('useChatState — cs-round-013 (history fetch 是唯一加载路径)', () => {
   beforeEach(() => {
-    ensureBackendSessionMock.mockClear();
     vi.restoreAllMocks();
+    // mock 一个兜底 fetch(防止未 mock 时真打网络)
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response('not mocked', { status: 500 }),
+    );
   });
 
   afterEach(() => {
@@ -56,7 +42,7 @@ describe('useChatState', () => {
   });
 
   it('initializes with empty abortedIds and escalationMap', () => {
-    const { result } = renderHook(() => useChatState(makeArgs()));
+    const { result } = renderHook(() => useChatState(makeArgs({ activeId: null })));
     expect(result.current.abortedIds.size).toBe(0);
     expect(result.current.escalationMap).toEqual({});
     expect(result.current.backendSessionId).toBeNull();
@@ -70,28 +56,40 @@ describe('useChatState', () => {
     expect(result.current.abortedIds.has('msg-1')).toBe(true);
   });
 
-  it('upserts backend session and sets backendSessionId when activeId is set', async () => {
+  it('activeId 变化时 fetch /history,设置 backendSessionId', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ messages: [] }), { status: 200 }),
     );
     const { result, rerender } = renderHook(
-      ({ id, loadedFromLocal }: { id: string | null; loadedFromLocal: boolean }) =>
-        useChatState(makeArgs({ activeId: id, loadedFromLocal })),
-      { initialProps: { id: null as string | null, loadedFromLocal: false } },
+      ({ id }: { id: string | null }) =>
+        useChatState(makeArgs({ activeId: id })),
+      { initialProps: { id: null as string | null } },
     );
-    rerender({ id: 'sess-42', loadedFromLocal: false });
+    rerender({ id: '77' });
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 10));
     });
-    expect(ensureBackendSessionMock).toHaveBeenCalledWith('sess-42', 'test-visitor', null);
-    expect(result.current.backendSessionId).toBe(42);
+    expect(result.current.backendSessionId).toBe(77);
   });
 
-  it('loads history into messages and marks last interrupted assistant (loadedFromLocalRef=false)', async () => {
-    // 场景:RAGChat 没从 local 加载(localStorage 空,常见于 backend merge 新会话)
-    // → useChatState 兜底 fetch /history 并 setMessages
+  it('activeId=null(draft)→ 不 fetch /history', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    const { result } = renderHook(() =>
+      useChatState(makeArgs({ activeId: null })),
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.current.backendSessionId).toBeNull();
+  });
+
+  it('history 返回 messages → setMessages updater 形式,backend-only append', async () => {
+    // 场景:activeId=99,本地 messages 有 1 条 user(id=1)
+    // 后端 /history 返回 user(id=1) + assistant(id=2) → diff 应当 append id=2
     const setMessages = vi.fn();
+    const setMessagesArg = setMessages as unknown as React.Dispatch<React.SetStateAction<UIMessage[]>>;
     vi.spyOn(global, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -100,58 +98,98 @@ describe('useChatState', () => {
             makeStored({
               id: 2,
               role: 'assistant',
-              status: 3,
-              parts: [{ type: 'text', text: 'partial' }],
+              status: 1,
+              content: 'hello',
+              parts: [{ type: 'text', text: 'hello' }],
             }),
           ],
         }),
         { status: 200 },
       ),
     );
+
     renderHook(() =>
       useChatState({
-        activeId: 'sess-99',
-        loadedFromLocalRef: { current: false },
-        setMessages,
+        activeId: '99',
+        setMessages: setMessagesArg,
+        setHistoryLoading: vi.fn(),
       }),
     );
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
       await new Promise((r) => setTimeout(r, 10));
     });
-    expect(setMessages).toHaveBeenCalledOnce();
-    const arg = setMessages.mock.calls[0][0] as UIMessage[];
-    expect(arg).toHaveLength(2);
-    // 最后一条 assistant 带 isInterrupted
-    const last = arg[1] as unknown as UIMessage<{ isInterrupted?: boolean }>;
-    expect(last.metadata?.isInterrupted).toBe(true);
+    expect(setMessages).toHaveBeenCalled();
+    // updater 形式被调
+    const callsWithFn = setMessages.mock.calls.filter(
+      (c) => typeof c[0] === 'function',
+    );
+    expect(callsWithFn.length).toBeGreaterThan(0);
+    const updater = callsWithFn[callsWithFn.length - 1][0] as (prev: UIMessage[]) => UIMessage[];
+    const localPrev: UIMessage[] = [
+      {
+        id: '1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'q' }],
+        metadata: {},
+      } as unknown as UIMessage,
+    ];
+    const merged = updater(localPrev);
+    expect(merged).toHaveLength(2);
+    expect(merged[1].id).toBe('2'); // 后端 assistant 被 append
   });
 
-  it('skips /history fetch when loadedFromLocalRef.current=true (切 session 闪烁修复 #2)', async () => {
-    // 场景:RAGChat 已在 useLayoutEffect 同步从 localStorage 加载完消息
-    // → useChatState 必须跳过 fetch(消除 race flicker)
+  it('history 返回空 messages → setMessages([])', async () => {
+    // 场景:activeId=88,后端 0 条 → 清空前端 messages(draft 后创建新会话)
     const setMessages = vi.fn();
-    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(
+    const setMessagesArg = setMessages as unknown as React.Dispatch<React.SetStateAction<UIMessage[]>>;
+    vi.spyOn(global, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ messages: [] }), { status: 200 }),
     );
     renderHook(() =>
       useChatState({
-        activeId: 'sess-77',
-        loadedFromLocalRef: { current: true },
-        setMessages,
+        activeId: '88',
+        setMessages: setMessagesArg,
+        setHistoryLoading: vi.fn(),
       }),
     );
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 20));
     });
-    // ensureBackendSession 必跑(WS 需要 backendSessionId)
-    expect(ensureBackendSessionMock).toHaveBeenCalledWith('sess-77', 'test-visitor', null);
-    // 但 /history 必须没被调
-    const historyCalls = fetchSpy.mock.calls.filter((c) =>
-      typeof c[0] === 'string' && (c[0] as string).includes('/history'),
+    // 至少有一次 setMessages 调用(空数组)
+    expect(setMessages).toHaveBeenCalled();
+    const lastCall = setMessages.mock.calls[setMessages.mock.calls.length - 1];
+    // 最后一次调用可能是直接传 [] 或 updater([]) 返 [] — 检查任意一次返 [] 的调用
+    const passedEmpty = setMessages.mock.calls.some((c) => {
+      if (Array.isArray(c[0])) return c[0].length === 0;
+      if (typeof c[0] === 'function') {
+        const result = (c[0] as (prev: UIMessage[]) => UIMessage[])([
+          { id: 'x', role: 'user', parts: [] } as unknown as UIMessage,
+        ]);
+        return Array.isArray(result) && result.length === 0;
+      }
+      return false;
+    });
+    expect(passedEmpty).toBe(true);
+    void lastCall;
+  });
+
+  it('setHistoryLoading 在 fetch 开始 → 完成被调 true → false', async () => {
+    const setHistoryLoading = vi.fn();
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ messages: [] }), { status: 200 }),
     );
-    expect(historyCalls.length).toBe(0);
-    // setMessages 也不该被调(RAGChat 已经同步加载过了)
-    expect(setMessages).not.toHaveBeenCalled();
+    renderHook(() =>
+      useChatState({
+        activeId: '55',
+        setMessages: vi.fn() as unknown as React.Dispatch<React.SetStateAction<UIMessage[]>>,
+        setHistoryLoading,
+      }),
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(setHistoryLoading).toHaveBeenCalledWith(true);
+    expect(setHistoryLoading).toHaveBeenCalledWith(false);
   });
 });

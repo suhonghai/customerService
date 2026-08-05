@@ -1,7 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import type { UIMessage } from 'ai';
 import type { Session } from '@/hooks/use-sessions';
+import { storedToUIMessages } from '@/lib/refetch-history';
+import type { StoredMessage } from '@/lib/erp-admin-client';
 import { exportToJSON, exportToMarkdown, makeExportFilename } from '@/lib/export-session';
 
 /**
@@ -14,6 +17,9 @@ import { exportToJSON, exportToMarkdown, makeExportFilename } from '@/lib/export
  *  - disabled = 当前 session 没有消息(空会话导了也没意义)
  *
  * 父组件传 escalationMap(从 page.tsx 拿),这样 Markdown 里能带工单号。
+ *
+ * cs-round-013:导出时临时 fetch `/api/sessions/[id]/history` 拿 messages。
+ * 不再依赖 Session.messages 字段(列表 API 不返回 messages)。
  */
 
 export interface ExportButtonsProps {
@@ -36,41 +42,42 @@ function triggerDownload(filename: string, content: string, mime: string) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  // 延迟 revoke,确保浏览器有足够时间触发下载
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function fetchMessagesForExport(backendId: number): Promise<UIMessage[]> {
+  const res = await fetch(`/api/sessions/${backendId}/history`);
+  if (!res.ok) throw new Error(`history fetch failed: ${res.status}`);
+  const json = (await res.json()) as { messages?: unknown };
+  const stored = Array.isArray(json.messages) ? (json.messages as StoredMessage[]) : [];
+  return storedToUIMessages(stored);
 }
 
 export function ExportButtons({ session, escalationMap, disabled }: ExportButtonsProps) {
   const [lastExport, setLastExport] = useState<string>('');
+  const [busy, setBusy] = useState(false);
 
-  const isEmpty = session.messages.length === 0;
-  const isDisabled = disabled || isEmpty;
+  const isEmpty = session.messageCount === 0;
+  const isDisabled = disabled || isEmpty || busy;
 
-  function handleExportJSON() {
+  async function doExport(kind: 'json' | 'md') {
     if (isDisabled) return;
+    setBusy(true);
     try {
-      const content = exportToJSON(session);
-      const filename = makeExportFilename(session, 'json');
-      triggerDownload(filename, content, 'application/json');
-      setLastExport(`JSON → ${filename}`);
+      const messages = await fetchMessagesForExport(session.id);
+      const content =
+        kind === 'json'
+          ? exportToJSON(session, messages)
+          : exportToMarkdown(session, messages, escalationMap);
+      const filename = makeExportFilename(session, kind);
+      triggerDownload(filename, content, kind === 'json' ? 'application/json' : 'text/markdown');
+      setLastExport(`${kind.toUpperCase()} → ${filename}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[export] JSON failed:', err);
-      setLastExport(`❌ JSON 导出失败: ${msg}`);
-    }
-  }
-
-  function handleExportMD() {
-    if (isDisabled) return;
-    try {
-      const content = exportToMarkdown(session, escalationMap);
-      const filename = makeExportFilename(session, 'md');
-      triggerDownload(filename, content, 'text/markdown');
-      setLastExport(`MD → ${filename}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error('[export] MD failed:', err);
-      setLastExport(`❌ MD 导出失败: ${msg}`);
+      console.error(`[export] ${kind} failed:`, err);
+      setLastExport(`❌ ${kind.toUpperCase()} 导出失败: ${msg}`);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -78,7 +85,7 @@ export function ExportButtons({ session, escalationMap, disabled }: ExportButton
     <div className="flex items-center gap-2">
       <button
         type="button"
-        onClick={handleExportJSON}
+        onClick={() => void doExport('json')}
         disabled={isDisabled}
         title={isEmpty ? '空会话没有内容可导出' : '导出当前会话为 JSON(完整结构)'}
         className="text-xs px-3 py-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -100,7 +107,7 @@ export function ExportButtons({ session, escalationMap, disabled }: ExportButton
       </button>
       <button
         type="button"
-        onClick={handleExportMD}
+        onClick={() => void doExport('md')}
         disabled={isDisabled}
         title={isEmpty ? '空会话没有内容可导出' : '导出当前会话为 Markdown(人类可读)'}
         className="text-xs px-3 py-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"

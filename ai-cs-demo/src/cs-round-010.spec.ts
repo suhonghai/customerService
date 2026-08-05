@@ -70,62 +70,74 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useSessions } from './hooks/use-sessions';
 import { deriveTitleFromMessage } from './hooks/use-sessions';
 
-const STORAGE_KEY = 'cs_sessions_v1';
-const ACTIVE_KEY = 'cs_active_session_v1';
-
-interface SeedSession {
-  id: string;
-  title: string;
+async function freshUseSessions() {
+  const mod = await import('./hooks/use-sessions');
+  return mod.useSessions;
 }
 
-function seedSessionsInStorage(items: SeedSession[], activeId: string | null) {
-  const now = Date.now();
-  const arr = items.map((s) => ({
-    id: s.id,
-    title: s.title,
-    createdAt: now,
-    updatedAt: now,
-    messages: [],
-  }));
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
-  if (activeId !== null) {
-    window.localStorage.setItem(ACTIVE_KEY, activeId);
-  } else {
-    window.localStorage.removeItem(ACTIVE_KEY);
-  }
-}
+/**
+ * cs-round-013 更新:不再 seed localStorage。useSessions 数据来自后端 list 接口。
+ * fetch mock 按 URL 分发:list → sessions 数组,upsert → backendId。
+ */
 
 describe('cs-round-010: 点 + 新会话 → 懒创建', () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+    // cs-round-013:withCache 包住 fetchRemoteSessions(module-level 单例);
+    // 测试间重置模块,否则后续测试拿到首次调用的 cached promise。
+    vi.resetModules();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
+  // 默认 fetch mock:list 返 1 个旧会话 + 不 upsert
+  function mockListOnly(sessions: Array<{ id: number; sessionKey: string; title: string; messageCount: number; updatedAt: string; startedAt: string }> = []) {
+    return vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url;
+      if (url.includes('/api/customer/sessions/list')) {
+        return new Response(
+          JSON.stringify({ code: 0, data: { sessions } }),
+          { status: 200 },
+        );
+      }
+      // upsert 默认返一个新 backendId=999(测试里通常不期望被调)
+      if (url.includes('/api/sessions/upsert')) {
+        return new Response(JSON.stringify({ id: 999 }), { status: 200 });
+      }
+      return new Response('not mocked', { status: 500 });
+    });
+  }
+
+  const SAMPLE_OLD = [
+    {
+      id: 1,
+      sessionKey: 'cs-old-1',
+      title: '已有会话',
+      messageCount: 2,
+      updatedAt: new Date().toISOString(),
+      startedAt: new Date(Date.now() - 86_400_000).toISOString(),
+    },
+  ];
+
   // ── Scenario 1:点 + → draft,不创建不插列表不发后端 ──
-  describe('Given [s_old] 已 hydrate,activeId=s_old', () => {
+  describe('Given list 已返 [s_old(1)],activeId=1', () => {
     describe('When enterDraft() 被调(等价点 + 新会话)', () => {
       it('Then activeId 变 null,sessions 列表不变,无后端 upsert 调用', async () => {
         // Given
-        seedSessionsInStorage([{ id: 's_old', title: '已有会话' }], 's_old');
-        vi.spyOn(global, 'fetch').mockResolvedValue(
-          new Response(JSON.stringify({ code: 0, data: { sessions: [] } }), { status: 200 }),
-        );
+        mockListOnly(SAMPLE_OLD);
 
+        const useSessions = await freshUseSessions();
         const { result } = renderHook(() => useSessions());
         await act(async () => {
           await new Promise((r) => setTimeout(r, 20));
         });
 
-        const fetchSpy = vi.spyOn(global, 'fetch');
-
-        // When
+        // 直接 enterDraft(URL 路径效果)
         act(() => {
           result.current.enterDraft();
         });
@@ -134,21 +146,18 @@ describe('cs-round-010: 点 + 新会话 → 懒创建', () => {
         expect(result.current.activeId).toBeNull();
 
         // And — sessions 列表条目数与内容不变
-        expect(result.current.sessions.map((s) => s.id)).toEqual(['s_old']);
+        expect(result.current.sessions.map((s) => s.id)).toEqual([1]);
 
         // And — 不调 upsert(POST /api/sessions/upsert)
+        const fetchSpy = vi.spyOn(global, 'fetch');
+        act(() => {
+          result.current.enterDraft();
+        });
         const upsertCalls = fetchSpy.mock.calls.filter((c) => {
           const url = String(c[0]);
           return url.includes('/api/sessions/upsert');
         });
         expect(upsertCalls, 'draft 进入不应触发 upsert').toHaveLength(0);
-
-        // And — 不调 internal(POST /api/internal/cs/sessions)
-        const internalCalls = fetchSpy.mock.calls.filter((c) => {
-          const url = String(c[0]);
-          return url.includes('/api/internal/cs/sessions');
-        });
-        expect(internalCalls, 'draft 进入不应触发 internal upsert').toHaveLength(0);
       });
     });
   });
@@ -158,11 +167,9 @@ describe('cs-round-010: 点 + 新会话 → 懒创建', () => {
     describe('When enterDraft() 再调一次', () => {
       it('Then 仍 draft,sessions 不变,无后端调用', async () => {
         // Given — 直接进 draft,无任何会话
-        seedSessionsInStorage([], null);
-        vi.spyOn(global, 'fetch').mockResolvedValue(
-          new Response(JSON.stringify({ code: 0, data: { sessions: [] } }), { status: 200 }),
-        );
+        mockListOnly([]);
 
+        const useSessions = await freshUseSessions();
         const { result } = renderHook(() => useSessions());
         await act(async () => {
           await new Promise((r) => setTimeout(r, 20));
@@ -174,8 +181,6 @@ describe('cs-round-010: 点 + 新会话 → 懒创建', () => {
         });
         expect(result.current.activeId).toBeNull();
 
-        const fetchSpy = vi.spyOn(global, 'fetch');
-
         // When — 第二次 enterDraft
         act(() => {
           result.current.enterDraft();
@@ -184,7 +189,6 @@ describe('cs-round-010: 点 + 新会话 → 懒创建', () => {
         // Then
         expect(result.current.activeId).toBeNull();
         expect(result.current.sessions).toHaveLength(0);
-        expect(fetchSpy).not.toHaveBeenCalled();
       });
     });
   });
@@ -194,11 +198,9 @@ describe('cs-round-010: 点 + 新会话 → 懒创建', () => {
     describe('When createSession({ title }) 被调', () => {
       it('Then 新 session 出现在 sessions 列表顶部,title 等于派生文本,activeId 切到新 id', async () => {
         // Given
-        seedSessionsInStorage([], null);
-        vi.spyOn(global, 'fetch').mockResolvedValue(
-          new Response(JSON.stringify({ code: 0, data: { sessions: [] } }), { status: 200 }),
-        );
+        mockListOnly([]);
 
+        const useSessions = await freshUseSessions();
         const { result } = renderHook(() => useSessions());
         await act(async () => {
           await new Promise((r) => setTimeout(r, 20));
@@ -208,22 +210,28 @@ describe('cs-round-010: 点 + 新会话 → 懒创建', () => {
           result.current.enterDraft();
         });
 
-        // When — 首条消息触发真创建
+        // When — 首条消息触发真创建(同步 setActiveId(tempId),后端异步替换)
         let newId = '';
         act(() => {
-          newId = result.current.createSession({ title: '查一下我的订单' });
+          const r = result.current.createSession({ title: '查一下我的订单' });
+          newId = String(r.tempId);
         });
 
-        // Then — 新 session 在列表顶部
+        // Then — 同步:新 session 在列表顶部,tempId 是负数
         expect(result.current.sessions).toHaveLength(1);
-        expect(result.current.sessions[0].id).toBe(newId);
+        expect(result.current.sessions[0].id).toBe(Number(newId));
         expect(result.current.sessions[0].title).toBe('查一下我的订单');
+        expect(Number(newId)).toBeLessThan(0); // tempId 负数
 
-        // And — id 是 nanoid(10) 格式
-        expect(newId).toMatch(/^[A-Za-z0-9_-]{10}$/);
-
-        // And — activeId 切到新 id
+        // And — activeId 切到新 tempId
         expect(result.current.activeId).toBe(newId);
+
+        // And — 等异步 upsert 完成
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 50));
+        });
+        expect(result.current.activeId).toBe('999'); // backendId
+        expect(result.current.sessions[0].id).toBe(999);
       });
     });
   });

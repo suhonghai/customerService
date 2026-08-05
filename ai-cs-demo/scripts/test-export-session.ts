@@ -28,46 +28,49 @@ function assert(cond: boolean, label: string) {
   }
 }
 
-// 一个最小可用的 mock session(参考 use-sessions.ts 的 Session 形状)
+// 一个最小可用的 mock session(参考 use-sessions.ts 的 Session 形状 — cs-round-013 纯元数据版)
 const mockSession: Session = {
-  id: 'test123',
+  id: 1,
+  sessionKey: 'cs-test123',
   title: '如何申请退款',
-  createdAt: Date.now() - 3600_000,
-  updatedAt: Date.now(),
-  messages: [
-    {
-      id: 'u1',
-      role: 'user',
-      parts: [{ type: 'text', text: '如何申请退款' }],
-    } as unknown as UIMessage,
-    {
-      id: 'a1',
-      role: 'assistant',
-      metadata: {
-        retrieval: {
-          query: '如何申请退款',
-          topK: 3,
-          results: [
-            { ref: '[1]', source: 'refund-policy.md', score: 0.85, preview: '退款政策预览', text: '...' },
-          ],
-        },
-        usage: { inputTokens: 100, outputTokens: 200, totalTokens: 300, cost: 0.002 },
+  messageCount: 2,
+  startedAt: new Date(Date.now() - 3600_000).toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
+const mockMessages: UIMessage[] = [
+  {
+    id: 'u1',
+    role: 'user',
+    parts: [{ type: 'text', text: '如何申请退款' }],
+  } as unknown as UIMessage,
+  {
+    id: 'a1',
+    role: 'assistant',
+    metadata: {
+      retrieval: {
+        query: '如何申请退款',
+        topK: 3,
+        results: [
+          { ref: '[1]', source: 'refund-policy.md', score: 0.85, preview: '退款政策预览', text: '...' },
+        ],
       },
-      parts: [
-        { type: 'reasoning', text: '用户问退款,需要调 search_faq' },
-        {
-          type: 'dynamic-tool',
-          toolName: 'search_faq',
-          toolCallId: 'call_001',
-          state: 'output-available',
-          input: { query: '如何申请退款', topK: 3 },
-          output: { results: '[1] refund-policy.md: 退款政策预览...' },
-        },
-        { type: 'text', text: '申请退款步骤:1) 订单页 → 申请退款;2) 选原因;3) 24h 内审核。' },
-      ],
-    } as unknown as UIMessage,
-  ],
-}
+      usage: { inputTokens: 100, outputTokens: 200, totalTokens: 300, cost: 0.002 },
+    },
+    parts: [
+      { type: 'reasoning', text: '用户问退款,需要调 search_faq' },
+      {
+        type: 'dynamic-tool',
+        toolName: 'search_faq',
+        toolCallId: 'call_001',
+        state: 'output-available',
+        input: { query: '如何申请退款', topK: 3 },
+        output: { results: '[1] refund-policy.md: 退款政策预览...' },
+      },
+      { type: 'text', text: '申请退款步骤:1) 订单页 → 申请退款;2) 选原因;3) 24h 内审核。' },
+    ],
+  } as unknown as UIMessage,
+];
 
 const mockEscalationMap = {
   a1: { escalationId: 'ESC-2026-001', estimatedWaitMinutes: 15, urgency: 'normal' },
@@ -76,11 +79,11 @@ const mockEscalationMap = {
 console.log('\n=== F7 export-session.ts 自测 ===\n')
 
 console.log('[exportToJSON]')
-const json = exportToJSON(mockSession)
+const json = exportToJSON(mockSession, mockMessages)
 const parsed = JSON.parse(json)  // 必须能 parse 才是合法 JSON
 assert(parsed.version === 1, 'JSON 含 version=1')
 assert(typeof parsed.exportedAt === 'string', 'JSON 含 exportedAt ISO 字符串')
-assert(parsed.session?.id === 'test123', 'JSON session.id 正确')
+assert(parsed.session?.id === 1, 'JSON session.id 正确')
 assert(parsed.session?.title === '如何申请退款', 'JSON session.title 正确')
 assert(Array.isArray(parsed.session?.messages), 'JSON session.messages 是数组')
 assert(parsed.session?.messages?.length === 2, 'JSON session.messages 长度 = 2')
@@ -89,9 +92,9 @@ assert(json.includes('如何申请退款'), 'JSON 含用户消息文本')
 assert(json.includes('search_faq'), 'JSON 含工具名 search_faq')
 
 console.log('\n[exportToMarkdown]')
-const md = exportToMarkdown(mockSession, mockEscalationMap)
+const md = exportToMarkdown(mockSession, mockMessages, mockEscalationMap)
 assert(md.includes('# 如何申请退款'), 'MD 标题含会话名')
-assert(md.includes('会话 ID') && md.includes('test123'), 'MD 元信息含会话 ID')
+assert(md.includes('会话 ID') && md.includes('1'), 'MD 元信息含会话 ID (cs-round-013: 数字 id)')
 assert(md.includes('👤 用户'), 'MD 含用户角色标识')
 assert(md.includes('🤖 AI'), 'MD 含 AI 角色标识')
 assert(md.includes('💭'), 'MD 含推理 emoji')
