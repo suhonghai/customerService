@@ -9,6 +9,10 @@
  *   5) 改实现,直到 GREEN
  *
  * @status draft
+ * @constitution I(测试先行) / III(反抽象,不造 wrapper) / IV(集成优先,真实 DB 不 mock)
+ *
+ * 注:宪法 II(简洁优先)是项目层约束,不需要每个 spec 文件声明。
+ * 完整 Constitution 4 条见 `CLAUDE.md` ## Constitution 段。
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';

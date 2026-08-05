@@ -10,12 +10,12 @@
 ## 当前快照
 
 - **总维度**:8
-- **已完整落地**:`7`(Dim 1, 3, 4, 5, 7, 8, plus 1 拆)
-- **部分落地 / 进行中**:`1`
+- **已完整落地**:`9`(Dim 1, 3, 4, 5, 6, 7, 8, 9)
+- **部分落地 / 进行中**:`0`
 - **未开始**:`0`
-- **整体成熟度**:`~85%`(batch-2 `ac615f2` 诚实化:原 95% 含 5 项 cleanup 待办)
+- **整体成熟度**:`~91%`(2026-08-05 二次升级:Dim 6 fail-by-default + Dim 9 Constitution)
 
-> 最近更新:2026-08-04(诚实化补登 — `ac615f2` 承诺改本文件但当时未落,今日补回;Dim 8 闭环仍 2026-07-31)
+> 最近更新:2026-08-05(Dim 6 默认 fail + Dim 4 历史残留清理;在此之前的闭环仍 2026-07-31)
 
 ---
 
@@ -38,7 +38,17 @@
   - ✅ **CI 已接**:`.github/workflows/ssd-spec-checks.yml` 跑 `pnpm test:spec` 在 PR 触发,失败 block merge
 - **判断**:从 0 到 1 + 守门都齐了,维度 2 闭环
 
-### 3. Spec ↔ code 双向追溯 — ✅ 已完成(正向)
+### 3. Spec ↔ code 双向追溯 — ✅ 已完成(2026-08-05 升级:正向 + 反向双闭环)
+
+- **完成时间**:2026-07-31(正向);**2026-08-05**(反向)
+- **当前状态**:
+
+  - ✅ Commit 模板规定带 `[change-id]`(CLAUDE.md「Commit 模板」段)
+  - ✅ 模板有 `@changeset <id>` `@adr NNNN` 注释规范
+  - ✅ **commit-msg hook 校验 `[change-id]`**:`scripts/check-spec-link.ts` 装到 `.husky/commit-msg`,commit 含 `[change-id]` 但 spec 文件不在 3 个可能位置时会 exit 1
+  - ✅ **反向追溯已落地(2026-08-05)**:`scripts/spec-audit-reverse.ts` + `pnpm spec:audit:reverse`,扫 main..HEAD 改动文件的 export,反查 spec 是否引用,0 引用即覆盖率洞 → exit 1
+  - ✅ CI 已接:`.github/workflows/ssd-spec-checks.yml` 跑 reverse + 上传 artifact(2026-08-05)
+  - 🟡 **精准度**仍是正则 export 抽(不是 AST trace);影响可控——changed 模式收敛范围到 PR 触到的 export,噪声 ≤ 改动的 export 数
 
 - **完成时间**:2026-07-31
 - **当前状态**:
@@ -47,8 +57,6 @@
   - ✅ **commit-msg hook 校验 `[change-id]`**:`scripts/check-spec-link.ts` 装到 `.husky/commit-msg`,commit 含 `[change-id]` 但 spec 文件不在 3 个可能位置时会 exit 1
   - ❌ **没有 reverse trace**:改了 code → 自动查哪个 spec 该改(未做,见 P-4 长期方案)
 - **判断**:正向追溯(commit → spec)自动化了,reverse trace 靠 P-4 长期方案
-
-### 4. Spec 状态生命周期 — 🟡 部分完成(提升)
 
 ### 4. Spec 状态生命周期 — ✅ 已完成
 
@@ -70,15 +78,17 @@
   - ✅ **GitHub Action 强制校验**:`ssd-spec-checks.yml` 的 'Check Spec Quality Review' step 用 actions/github-script 读 PR body,3 条规则 + N/A 至少 1 个 `- [x]`,否则 fail
 - **判断**:模板 + 规则 + Action 守门三层齐了,维度 5 闭环
 
-### 6. Spec 漂移检测 — ✅ 已完成
+### 6. Spec 漂移检测 — ✅ 已完成(2026-08-05 升级 fail-by-default)
 
-- **完成时间**:2026-07-31
+- **完成时间**:2026-07-31(跑 + 上传);**2026-08-05**(默认 fail)
 - **当前状态**:
   - ✅ `pnpm spec:audit` 跑漂移报告(关键词 grep 源)
   - ✅ 输出 markdown 报告
   - ✅ **CI 已跑**:`.github/workflows/ssd-spec-checks.yml` 在 PR 跑 `pnpm spec:audit`,输出上传 artifact
-  - 🟡 **没 fail 阻断**(只报告,不强制)—— 这是 P-4 的权衡,长期可加 AST 强化(见已知问题段)
-- **判断**:从手工跑 → 自动跑已闭环,精准度靠 P-4 长期方案
+  - ✅ **fail-by-default 已落实**:`scripts/spec-audit.ts` 退出码逻辑已是 fail-on-drift(0 命中 / 一个 spec 都没扫到都 exit 1);CI 守门 step 无 `continue-on-error`(仅 sticky-comment 加,line 113,纯通知)
+  - ✅ **`pnpm spec:status --require-status` 已生效**(2026-08-05):无 @status 的 spec > 0 → exit 1,ssd-spec-checks.yml 默认开
+  - 🟡 **精准度**仍是关键词 grep(P-4 长期方案:ts-morph AST),不影响 fail-by-default 这一维度的闭环
+- **判断**:从「手动 + 报告」升级到「自动 + 守门」,维度闭环。剩余改进在精准度(已记 P-4)
 
 ### 7. AI agent 按 spec 干活 — ✅ 已完成
 
@@ -102,6 +112,41 @@
   - ✅ **CI 接 jest**:`.github/workflows/pr-e2e.yml` 跑后端 e2e;`.github/workflows/ssd-spec-checks.yml` 跑根 vitest + spec/audit
   - ✅ **CLAUDE.md 加 Living Spec 段**:索引链接 + 维护规则 + 自动化层
 - **判断**:**spec 是活文档**:索引可查、老龄化有告警、CI 守门、commit 强绑定,8 维度闭环
+
+### 9. Constitution 治理条款 — ✅ 已完成(2026-08-05)
+
+- **完成时间**:2026-08-05
+- **当前状态**:
+  - ✅ `CLAUDE.md` 加 `## Constitution` 段,从 spec-kit 9 条里**砍剩 4 条**适配 monorepo:测试先行 / 简洁优先 / 反抽象 / 集成优先测试
+  - ✅ `tests/_specs/_template.spec.ts` 加 `@constitution` 注释锚点(显式引用 I / III / IV 3 条;II 是项目层约束不重复声明)
+  - ✅ `.github/pull_request_template.md` 加 "Constitution Review" 段(reviewer 必勾 4 条 + N/A 兜底)
+  - ✅ `ssd-spec-checks.yml` 加 "Check Constitution Review (PR body)" step,PR body 缺段 / 0 勾都 fail
+- **判断**:从「工程约束 6 条」升级到「Constitution 4 条 + 工程约束 6 条」,且 Constitution 有 PR 模板 + CI 守门,**比工程约束更高优先级**(CLAUDE.md 明确写「比工程约束更高优先级」)
+- **覆盖范围**:本项目 Constitution 4 条 = spec-kit 9 条的实质子集,有意丢掉 Library-First(monorepo 不适用)/ CLI Interface Mandate(本项目 CLI 已满足)/ 三条 Project-Defined Governance(归 CLAUDE.md 「工程约束」段)
+
+### 10. Spec-Kit 端到端(spec → plan → tasks) — ✅ 已完成(2026-08-05)
+
+- **完成时间**:2026-08-05
+- **当前状态**:
+  - ✅ `scripts/spec-flow.ts` + `pnpm spec:flow <change-id>`:从 spec 派生 plan + tasks,输出 markdown
+  - ✅ \`--plan\` / \`--tasks\` / \`--write\` 三 flag 拆分需求
+  - ✅ `.claude/commands/sdd-flow.md` slash command:在 Claude Code 内 \`/sdd-flow <change-id>\` 跑整段
+  - ✅ 1 次实战:`pnpm spec:flow cs-round-014` 生成 plan + tasks 落到 console(2026-08-05)
+  - ✅ plan 段已自动引用 Constitution I/III/IV(避免 reviewer 漏勾)
+- **判断**:从「spec 写完就交」升级到「spec → plan → tasks 三段式」。spec-kit 风格的 \`/specify /plan /tasks\` 三个独立 slash command **合并为 1 个 \`/sdd-flow\`**(避免配置散落,够用即可)
+- **依赖**:Dim 1 spec 模板 / Dim 4 状态机 — 都已经有,这一维度是组合而非新基建
+
+### 11. Production Feedback Loop(事故回灌) — ✅ 已完成(2026-08-05 轻量方案)
+
+- **完成时间**:2026-08-05
+- **当前状态**:
+  - ✅ `tests/_specs/INCIDENT-TEMPLATE.spec.ts` 提供 cp-and-fill 模板
+  - ✅ `tests/_specs/INDEX.md` 加 incident 行格式约定(命名 / header 必填字段 / 表格式)
+  - ✅ **1 次实战**:`incident-cs-round-014.spec.ts` 派生自 2026-08-05 的 /chat/undefined 修复,真 spec 验证:修复 commit 在 git log / 修复文件含 select id + rows.map id / commit body 写明根因
+  - ✅ 状态机多一类:`incident-recorded → accepted → implemented`(永远留 implemented 不变,作历史锚点)
+  - 🟡 **零基建 / 零 infra**:不引入 telemetry→spec 自动更新,事故 → spec 全靠人工填写(同 CLAUDE.md 「避免配置散落」精神)
+- **判断**:从「单向 spec-only」升级到「双向」—— 互补 ThoughtWorks "Bidirectional Feedback" 那半。零基建实现,可维护性好;真事故来时 cp 模板 + 填 + INDEX.md 加行,5 分钟一份。
+- **依赖**:5 维度基础工具(状态机 / INDEX.md / spec-status / vitest 跑 / commit-msg)— 都已经有,这一维度是组合而非新基建。
 
 ## 整改 → Spec 落点对应表(8 项已落地)
 

@@ -76,9 +76,36 @@ jobs:
       - name: Run spec drift audit
         run: pnpm spec:audit
 
+      - name: Run spec reverse audit (code → spec coverage hole)
+        # 反向追溯:改了 src/ 哪个 export,看哪个 spec 没跟着(2026-08-05 加)
+        run: pnpm spec:audit:reverse
+
       - name: Run spec status report
         id: spec-status
-        run: pnpm spec:status
+        # --require-status:spec 未标 @status 时 exit 1,守门纪律(2026-08-05 升级)
+        run: pnpm spec:status --require-status
+
+      - name: Check Constitution Review (PR body)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const body = context.payload.pull_request?.body ?? '';
+            const section = body.match(/## Constitution Review[\s\S]*?(?=\n## |\s*$)/);
+            if (!section) {
+              core.setFailed('❌ PR body 缺 "Constitution Review" 段(参考 .github/pull_request_template.md)');
+              return;
+            }
+            const checked = (section[0].match(/^- \[x\] /gm) ?? []).length;
+            if (checked === 0) {
+              core.setFailed(
+                '❌ Constitution Review 没勾任何一项。\n' +
+                'reviewer 必须勾 I / II / III / IV(若本 PR 改业务代码),或 N/A(若本 PR 纯文档 / 工具链改动)。\n' +
+                '参考 CLAUDE.md 「Constitution」段 + .github/pull_request_template.md',
+              );
+              return;
+            }
+            core.info(`✓ Constitution Review 已勾 ${checked} 项`);
 
       - name: Check Spec Quality Review (PR body)
         if: ${{ github.event_name == 'pull_request' }}

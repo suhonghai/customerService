@@ -18,6 +18,31 @@ W11 ERP Admin monorepo,**3 个独立子包**,共享 docker-compose 多环境矩�
 
 ---
 
+## Constitution(项目基本法)
+
+> 跟 [GitHub spec-kit Constitutional Framework](https://github.com/github/spec-kit) 对齐,本项目从其 9 条里**采纳 4 条**作为代码层宪法。Spec 模板 / PR review / CI 守门都按此判断。**比「工程约束」更高优先级** —— 工程约束是这条宪法的展开。
+
+### I. 测试先行(Test-First Imperative)
+
+业务代码改动,**先写 `tests/_specs/<change-id>.spec.ts`(或子包内 spec)→ 跑 RED → 改实现到 GREEN**。不允许跳 spec 直写实现。失败模式:PR 改 src/ 但没动 spec → CI 拦。
+
+### II. 简洁优先(Simplicity — Anti-Future-Proofing)
+
+不为"将来可能用到"加东西。**新东西进项目前问:**这是 2026 必须的吗?不是 → 别加。3 个 monorepo 子包已是上限;不引入第 4 个 package,不引入"配置散落"。同「还未建 / 故意不建」段精神。
+
+### III. 反抽象(Anti-Abstraction)
+
+不引入无价值的包装层。**直接用 framework 原生 feature**(Prisma client / NestJS decorator / Next.js route / Vite plugin),**不造** entity / repository / cache / DTO wrapper 等例行抽象层。需要封装时直接 inline 进调用方,不要再造一层 class。
+
+### IV. 集成优先测试(Integration-First Testing)
+
+spec 走**真实**层:DB 用 test container(MySQL/Chroma 镜像),HTTP 用 supertest,WS 用真 gateway。**不 mock 整个外部依赖**(用 test profile / test seed 替代)。唯一例外:单函数单元 spec(`<子包>/src/<file>.spec.ts`)可 mock 单函数 / 单 util。
+
+> 治理:`.github/pull_request_template.md` 加「Constitution Review」段,reviewer 必勾 4 条(或 N/A 兜底)。
+> CI:`.github/workflows/ssd-spec-checks.yml` 加 step 校验 PR body Constitution Review 至少 1 个 `- [x]`,否则 fail PR。
+
+---
+
 ## 工程约束(必须遵守)
 
 1. **MySQL 兼容**:Prisma schema 不引 CTE / generated column / 外键约束 / `AUTO_INCREMENT`。见各子包 README。

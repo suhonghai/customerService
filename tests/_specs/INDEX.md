@@ -31,6 +31,25 @@
 - **废弃 spec**:`@status deprecated` → 表里 status 改 + 加 superseded_by 引用
 - **月度 review**:owner 过一遍这张表,把 90+ 天未动的 draft 处理掉(推动 / 改需求 / 删)
 
+### Incident spec 行格式约定(2026-08-05 加)
+
+> 事故回灌 spec —— 把生产事故反向写入 spec 流,让事故复盘成为活文档的一等公民(对应 ThoughtWorks "Bidirectional Feedback")。
+> 模板:`tests/_specs/INCIDENT-TEMPLATE.spec.ts`(复制改名后填)。
+
+| 字段              | 位置                                                           | 示例                                                        |
+| ----------------- | -------------------------------------------------------------- | ----------------------------------------------------------- |
+| 文件名            | `tests/_specs/`                                                | `incident-<NNN>-<slug>.spec.ts`(`NNN` 3 位,slug kebab-case) |
+| header            | `/**` 块                                                       | `@status incident-recorded` → `accepted` → `implemented`    |
+| header            | 同上                                                           | `@incident-id <biz-id>`(W11 / Jira / 内部 ticket)           |
+| header            | 同上                                                           | `@incident-date YYYY-MM-DD`                                 |
+| header            | 同上                                                           | `@fixed-by <short-sha>` 修复 commit 短 hash                 |
+| header            | 同上                                                           | `@root-cause <一句话>`                                      |
+| INDEX.md 表格一行 | 业务场景列填 `🚨 incident: <一句话>`, 关联代码列填修复文件路径 | (跟普通 spec 共用一张表;字段语义统一)                       |
+
+**生命周期多一类**:普通 spec `draft → accepted → implemented → deprecated`。Incident spec 多一步 `incident-recorded`(刚发时)+ 永远留 `implemented` 不变(作为历史锚点)。详见「Living Spec 生命周期」段。
+
+**实战 demo**:`tests/_specs/incident-cs-round-014.spec.ts`(填自 cs-round-014 /chat/undefined 修复)。
+
 ## Living Spec 生命周期
 
 ```

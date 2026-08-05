@@ -10,7 +10,9 @@
     "test:spec": "vitest run",
     "test:spec:watch": "vitest",
     "spec:audit": "tsx scripts/spec-audit.ts",
+    "spec:audit:reverse": "tsx scripts/spec-audit-reverse.ts",
     "spec:status": "tsx scripts/spec-status.ts",
+    "spec:flow": "tsx scripts/spec-flow.ts",
     "check-spec-link": "tsx scripts/check-spec-link.ts"
   },
   "devDependencies": {

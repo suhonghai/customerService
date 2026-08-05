@@ -55,7 +55,14 @@ function parseSpec(filepath: string): Spec {
   return { id, status, scenarioCount, mtime, hasChangelog, crossPkg };
 }
 
+// CLI flag: --require-status
+// 开了之后,任何 spec 文件没标 @status → exit 1。
+// 配 .github/workflows/ssd-spec-checks.yml 用,把 spec status 从「报告」升到「守门」。
+// 人手跑不开(看不顺眼但不阻拦),CI 跑(2026-08-05 P0 升级)。
+const REQUIRE_STATUS_FLAG = '--require-status';
+
 function main() {
+  const requireStatus = process.argv.includes(REQUIRE_STATUS_FLAG);
   const specs = SPEC_DIRS.flatMap((dir) =>
     readdirSync(dir)
       // 两种 spec 文件后缀:*.spec.ts(根 vitest)+ *.e2e-spec.ts(后端 jest)
@@ -144,6 +151,15 @@ function main() {
     for (const s of orphans) {
       console.log(`- ${s.id}`);
     }
+    if (requireStatus) {
+      console.error(
+        `\n✗ ${REQUIRE_STATUS_FLAG}: ${orphans.length} 条孤儿,exit 1。\n` +
+          `  修法:在 spec 文件顶部加 /** @status <draft|accepted|implemented|deprecated> */`,
+      );
+      process.exitCode = 1;
+    }
+  } else if (requireStatus) {
+    console.log(`\n✓ ${REQUIRE_STATUS_FLAG}:全部 spec 已标 @status`);
   }
 }
 

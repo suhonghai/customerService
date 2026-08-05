@@ -9,6 +9,7 @@
 - bug fix 引用 issue 号
 - 如果有对应 spec,引用:specs/<task-id>/PRODUCT.md + TECH.md
 -->
+
 - [ ] 关联 task ID(`W11-P0-NN` / `W11-P1-NN` / `W11-P2-NN` / `W11-P3-NN` 或 issue 号)已写入标题
 - [ ] 关联 spec(PRODUCT.md / TECH.md)已 approved 或本 PR 同时引入
 
@@ -20,6 +21,7 @@
 - 手动测试:步骤 + 截图 / 录屏(UI 改动必带)
 - 性能验证:基准 / 压测结果
 -->
+
 - [ ] 单元测试覆盖:是 / 否(说明)
 - [ ] E2E 测试覆盖:是 / 否(改动 frontend 时必带)
 - [ ] 手动测试:是 / 否
@@ -72,9 +74,19 @@
 - [ ] **Out of scope 显式**:可能改了 / 可能没改的边界列出来,reviewer 才能判断有没有越界
 - [ ] **N/A**:本 PR 不涉及 spec 修改(纯文档 / 重构 / 工具链等)
 
-## Agent Mode
+## Constitution Review(reviewer 必勾,2026-08-05 加)
+
+<!-- 项目宪法 4 条,改动任何业务代码 reviewer 必勾。纯文档 / 工具链改动可 N/A -->
+<!-- 参考:`CLAUDE.md` ## Constitution 段;语义对齐 spec-kit Constitutional Framework -->
+
+- [ ] **I. 测试先行**:本 PR 改的实现有对应 spec(`tests/_specs/<change-id>.spec.ts` 或子包内),先 RED → GREEN 才允许 merge
+- [ ] **II. 简洁优先**:未引入"将来可能用到"的工具 / 抽象 / 配置(同 CLAUDE.md 「还未建 / 故意不建」段)
+- [ ] **III. 反抽象**:未引入 entity / repository / cache wrapper 等例行抽象层(直接用 framework 原生 feature)
+- [ ] **IV. 集成优先**:spec 走 test DB / supertest / 真 gateway,不 mock 整个外部依赖
+- [ ] **N/A**:本 PR 纯文档 / 工具链 / 配置改动,不涉及业务代码
 
 <!-- 单选;若 PR 同时含 agent + 人工提交,以最后一次 push 的来源为准 -->
+
 - [ ] 本 PR 完全由 agent automation 创建(任何工具:Claude Code / Codex / 自定义 cron 等)
 - [ ] 本 PR 含人工 commit / 编辑
 
