@@ -134,6 +134,21 @@ export class InternalController {
   }
 
   /**
+   * cs-round-011:GET /api/internal/cs/sessions/:id/messages/:msgId — 拉单条消息
+   *   续推接口需要:continueFromMessageId 路径下,服务端先 getMessage 拿到
+   *   已有 partial content + parts,把续推起点对齐。
+   *   404 → status=4xx 业务错误,客户端 catch 后降级。
+   */
+  @Get('sessions/:id/messages/:msgId')
+  @ApiOperation({ summary: '拉单条 message(cs-round-011 续推接口需要)' })
+  async getMessage(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('msgId', ParseIntPipe) msgId: number,
+  ) {
+    return this.internalService.getMessage(id, msgId);
+  }
+
+  /**
    * GET /api/internal/cs/orders?sessionKey=X[&status=Y]
    *   W11 C-FULL:服务端从 sessionKey 反查 cs_session.userId,再查 Order。
    *   不接受 userId query 参数(防止 IDOR);即使客户端误传,也会被忽略并 warn。

@@ -303,6 +303,21 @@ export class InternalService {
   }
 
   // ============================================================
+  // cs-round-011:GET /api/internal/cs/sessions/:id/messages/:msgId — 拉单条
+  //   续推接口 helper:continueFromMessageId 路径要先拿到已有 partial content。
+  //   校验必须属于该 session(防 IDOR)。
+  // ============================================================
+  async getMessage(sessionId: number, msgId: number) {
+    const msg = await this.prisma.csMessage.findFirst({
+      where: { id: msgId, sessionId },
+    });
+    if (!msg) {
+      throw new BizException(BizCode.NOT_FOUND, '消息不存在');
+    }
+    return msg;
+  }
+
+  // ============================================================
   // GET /api/internal/cs/orders?sessionKey=X[&status=Y]
   //   W11 C-FULL:服务端从 sessionKey 反查 cs_session.userId,再查 Order。
   //   不接受 userId query 参数(防止 IDOR);即使客户端误传,也会被忽略并 warn。

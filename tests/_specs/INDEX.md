@@ -17,6 +17,7 @@
 | cs-round-006                                                  | appendMessage role 白名单                                     | `erp-admin-backend/test/cs-round-006.e2e-spec.ts`(jest)      | implemented | `internal.service.ts` `appendMessage`                                 | AI       | 2026-07-31   |
 | fix-009                                                       | storedToUIMessage metadata.reasoning 契约(空推理不注入键)     | `tests/_specs/fix-009.spec.ts`(vitest 根)                    | implemented | `ai-cs-demo/src/lib/message-converter.ts` `storedToUIMessage`         | AI       | 2026-08-03   |
 | fix-ci-008                                                    | 3 子包 .env.test.example 入仓 + pr-e2e 自动复制               | `tests/_specs/fix-ci-008.spec.ts`(vitest 根)                 | implemented | `pr-e2e.yml` + `ai-cs-demo/.gitignore` + 3 份子包模板                 | AI       | 2026-08-03   |
+| cs-round-011                                                  | 流式回复抗中断 — 后端继续生成 / 抖动重试 / status 分发渲染      | `tests/_specs/cs-round-011.spec.ts`(vitest 根,跨包) + `erp-admin-backend/test/cs-round-011.e2e-spec.ts`(jest) | implemented | `ai-cs-demo/src/app/api/chat/route.ts` `withStreamRetry` + `continueFromMessageId` + `refetch-history.ts` | AI       | 2026-08-05   |
 
 > 注:`cs-round-001` / `cs-round-002` 的 spec 已根据 §D / P-1 结论从根 `tests/_specs/` 迁到 `erp-admin-backend/test/`(jest 路径)。根目录放的是 redirect 引用。
 
