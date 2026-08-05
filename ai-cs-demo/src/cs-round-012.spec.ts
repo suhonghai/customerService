@@ -22,11 +22,13 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const ROOT = resolve(__dirname, '..', '..', '..');
+// vitest 在 ai-cs-demo 子包里跑,__dirname = <repo>/ai-cs-demo/src,up 2 = repo root
+const ROOT = resolve(__dirname, '..', '..');
+const PKG = resolve(ROOT, 'ai-cs-demo');
 
 describe('cs-round-012: use-chat-state 不再短路 /history', () => {
   it('use-chat-state.ts 删除了 loadedFromLocalRef 短路', () => {
-    const path = resolve(ROOT, 'ai-cs-demo/src/hooks/use-chat-state.ts');
+    const path = resolve(PKG, 'src/hooks/use-chat-state.ts');
     const text = readFileSync(path, 'utf-8');
     expect(text).not.toMatch(/if\s*\(\s*loadedFromLocalRef\.current\s*\)\s*return/);
     // diff/append 模式:setMessages(prev => [...prev, ...newFromBackend])
@@ -34,7 +36,7 @@ describe('cs-round-012: use-chat-state 不再短路 /history', () => {
   });
 
   it('refetch-history.ts 暴露纯函数 storedToUIMessages', () => {
-    const path = resolve(ROOT, 'ai-cs-demo/src/lib/refetch-history.ts');
+    const path = resolve(PKG, 'src/lib/refetch-history.ts');
     const text = readFileSync(path, 'utf-8');
     expect(text).toMatch(/export function storedToUIMessages/i);
     // refetchSessionHistory 包装函数仍然存在(给 useRealtime / RAGChat 用)
@@ -43,14 +45,14 @@ describe('cs-round-012: use-chat-state 不再短路 /history', () => {
   });
 
   it('use-chat-state.ts 引用 storedToUIMessages 做转换', () => {
-    const path = resolve(ROOT, 'ai-cs-demo/src/hooks/use-chat-state.ts');
+    const path = resolve(PKG, 'src/hooks/use-chat-state.ts');
     const text = readFileSync(path, 'utf-8');
     expect(text).toMatch(/import\s*\{\s*storedToUIMessages\s*\}/);
     expect(text).toMatch(/storedToUIMessages\(/);
   });
 
   it('use-chat-state.test.ts 覆盖 diff/append 行为', () => {
-    const path = resolve(ROOT, 'ai-cs-demo/src/hooks/use-chat-state.test.ts');
+    const path = resolve(PKG, 'src/hooks/use-chat-state.test.ts');
     const text = readFileSync(path, 'utf-8');
     // 必须含 cs-round-012 的 2 个新 case 关键字
     expect(text).toMatch(/cs-round-012/i);
