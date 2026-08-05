@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, FormEvent } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, FormEvent } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useChatWithErrors } from '@/hooks/use-chat-with-errors';
 import { useSessions } from '@/hooks/use-sessions';
@@ -12,6 +12,7 @@ import { scanStreamError } from '@/lib/stream-error-scanner';
 import { refetchSessionHistory } from '@/lib/refetch-history';
 import { shouldCreateNewSession, findReusableEmptySession } from '@/lib/session-policy';
 import { withCache } from '@/lib/with-cache';
+import { dedupeMessagesByContent } from '@/lib/dedupe-messages';
 import type { UserFacingError, UserFacingErrorActionType } from '@/lib/errors';
 import { SessionList } from '@/components/SessionList';
 import { MoreMenu } from '@/components/MoreMenu';
@@ -77,14 +78,19 @@ export function RAGChat() {
     }
   }, [urlSessionId, activeId, switchSession]);
 
+  // W11:切 session 闪烁网关(2026-08-04):
+  // RAGChat 在 useLayoutEffect 同步从 localStorage 加载消息、置此 ref=true;
+  // useChatState 的 useEffect 读 ref 后跳过 /history fetch,消除
+  // "B.local → B.backend"两次 setMessages 的 race flicker。
+  const loadedFromLocalRef = useRef(false);
+
   const {
     abortedIds,
     setAbortedIds,
     escalationMap,
     setEscalationMap,
     backendSessionId,
-    justLoadedRef,
-  } = useChatState({ activeId, setMessages });
+  } = useChatState({ activeId, loadedFromLocalRef, setMessages });
 
   const sessionHasOperator = useMemo(
     () =>
@@ -102,17 +108,42 @@ export function RAGChat() {
   if (visitorIdRef.current === null) visitorIdRef.current = getVisitorId();
 
   const prevActiveIdRef = useRef<string | null | undefined>(undefined);
+  // W11:justLoadedRef 标记刚同步过 messages — 下一帧 write-back effect 跳过,
+  // 避免把刚 load 的本地消息当作用户输入又写回 sessions(无谓 setSessions)
+  const justLoadedRef = useRef(false);
   // W11:三支处理 — initial mount(只记 prev)、activeId → null(清 messages,避免删光会话残留)、
   // activeId 切换(加载目标会话 messages)
-  useEffect(() => {
+  // 2026-08-04 升级 useEffect → useLayoutEffect:activeId 变化时,setMessages 在 paint 前
+  // 完成,浏览器只 paint 最终的 B.messages,不会先 paint 旧的 A.messages 再 paint B.messages
+  // (消除切 session 闪烁第 1 次 — A→B 内容切换瞬时可见)。
+  // 同时维护 loadedFromLocalRef 网关,告诉 useChatState 是否跳过 /history fetch。
+  useLayoutEffect(() => {
     if (prevActiveIdRef.current === undefined) {
       prevActiveIdRef.current = activeId;
       if (activeId === null) return;
       const target = sessions.find((s) => s.id === activeId);
       if (target && target.messages.length > 0) {
+        // W11:dedupe by content — 历史 localStorage 可能被早期 WS reconnect refetch
+        // 污染过(客户端 nanoid id + 后端 numeric id 共存),按 id dedupe 失效。
+        // 见 src/lib/dedupe-messages.ts。dedupe 后用纯化版本 setMessages +
+        // 主动写回 sessions,清掉污染。
+        const deduped = dedupeMessagesByContent(target.messages);
+        if (deduped.length !== target.messages.length) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[RAGChat] localStorage deduped ${target.messages.length - deduped.length} duplicate messages`,
+          );
+          // 写回 sessions(useSessions 的 persist effect 会持久化到 localStorage)。
+          // 不依赖 RAGChat 的 write-back effect,因为 justLoadedRef=true 会让它跳过。
+          updateActiveSession(deduped, visitorIdRef.current ?? 'anon');
+        }
         justLoadedRef.current = true;
-        setMessages(target.messages);
+        setMessages(deduped);
+        // 网关:localStorage 有内容 → useChatState 跳过 /history fetch(避免 race)
+        loadedFromLocalRef.current = true;
       }
+      // target 空(localStorage 无该 session,常见于 backend merge 来的新会话)
+      // → loadedFromLocalRef 保持 false,useChatState 会 fetch backend history
       return;
     }
     if (prevActiveIdRef.current === activeId) return;
@@ -121,12 +152,26 @@ export function RAGChat() {
     if (activeId === null) {
       setMessages([]);
       justLoadedRef.current = true;
+      loadedFromLocalRef.current = false; // null session 不 fetch
       return;
     }
     const target = sessions.find((s) => s.id === activeId);
     justLoadedRef.current = true;
-    setMessages(target?.messages ?? []);
-  }, [activeId, sessions, setMessages, justLoadedRef]);
+    // 同样 dedupe(切 session 也可能命中历史污染的 localStorage)
+    const deduped = target ? dedupeMessagesByContent(target.messages) : [];
+    setMessages(deduped);
+    if (target && deduped.length !== target.messages.length) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[RAGChat] session-switch deduped ${target.messages.length - deduped.length} duplicate messages`,
+      );
+      updateActiveSession(deduped, visitorIdRef.current ?? 'anon');
+    }
+    // 网关:local 有消息 → 跳过 fetch;local 空 → 保留 fetch(跨设备同步)
+    loadedFromLocalRef.current = deduped.length > 0;
+    // justLoadedRef / loadedFromLocalRef 是 ref 不进 deps;updateActiveSession 是 useCallback 稳定引用
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, sessions, setMessages, updateActiveSession]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -135,7 +180,9 @@ export function RAGChat() {
       return;
     }
     updateActiveSession(messages, visitorIdRef.current ?? 'anon');
-  }, [messages, activeId, updateActiveSession, justLoadedRef]);
+    // justLoadedRef 是 ref,不进 deps;activeId / messages 变化即重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, activeId, updateActiveSession]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastPartsSnapshotRef = useRef('');
@@ -193,10 +240,30 @@ export function RAGChat() {
     backendSessionId,
     onRecover: (recovered) => {
       if (recovered.length === 0) return;
+      // W11:流式期间不要 refetch-append — 客户端 AI SDK 正在 streaming 的 assistant
+      // 与后端刚 save 的 assistant(id 不同)会被误判为"新消息"→ 重复 append。
+      // 此时已经有 pendingRefetchRef 机制兜底(流式结束后再 refetch),
+      // 这里直接放弃本次 refetch。
+      if (status === 'submitted' || status === 'streaming') {
+        pendingRefetchRef.current = true;
+        return;
+      }
       setMessages((prev) => {
-        const seen = new Set(prev.map((m) => m.id));
-        const filtered = recovered.filter((m) => !seen.has(m.id));
-        return [...prev, ...filtered];
+        // W11:按 content dedupe,不是按 id(见 src/lib/dedupe-messages.ts)。
+        // 客户端 nanoid id 与后端 numeric id 不同,旧实现留下"同内容重复 append"bug。
+        const seen = new Set(prev.map((m) => dedupeMessagesByContent([m])[0] ? `${m.role}:${(m.parts ?? []).filter((p) => (p as {type?: string}).type === 'text').map((p) => (p as {text?: string}).text ?? '').join('')}` : ''));
+        const result = [...prev];
+        for (const r of recovered) {
+          const text = (r.parts ?? [])
+            .filter((p) => (p as {type?: string}).type === 'text')
+            .map((p) => (p as {text?: string}).text ?? '')
+            .join('');
+          const key = `${r.role}:${text}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          result.push(r);
+        }
+        return result;
       });
     },
     getKnownMessageIds: () => new Set(messagesRef.current.map((m) => m.id)),
