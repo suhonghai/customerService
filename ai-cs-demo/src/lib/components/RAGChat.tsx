@@ -69,10 +69,31 @@ export function RAGChat() {
     switchSession,
     updateActiveSession,
   } = useSessions();
-  // ── 2026-08-04 路由 ↔ activeId 同步 ──
-  // useParams 读 urlSessionId,useEffect 监听变化 → 调 switchSession(urlSessionId)
+  // ── 2026-08-05 路由 ↔ activeId 同步(修复切 session 闪烁) ──
+  // useParams 读 urlSessionId,useEffect 监听 urlSessionId 变化 → 调 switchSession
+  // 关键:只在 urlSessionId 真变化时触发(activeId 单独变时不触发)。
+  //
+  // 旧 bug:点 sidebar → switchSession(B) → setActiveId(B) → router.replace(/chat/B)
+  //  setActiveId 在 router.replace 完成 URL 改变之前先 batched 渲染一次
+  //  → 此时 activeId=B 但 urlSessionId 还是旧值 → URL sync effect 误判 mismatch
+  //  → switchSession(旧值) → setActiveId(回旧) → 再切回去 → 闪烁 A→B→A→B。
+  //
+  // 修法:用 prevUrlSessionIdRef 记录上次 urlSessionId,只在它变化时同步。
+  // 初始 mount 也支持 deep link 同步(用本地 ref 而不是 deps 检测)。
   // 顺序:必须在 useSessions 解构之后(引用 activeId/switchSession)
+  const prevUrlSessionIdRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
+    if (prevUrlSessionIdRef.current === undefined) {
+      prevUrlSessionIdRef.current = urlSessionId ?? null;
+      // 初始 mount:如果 URL 和 activeId 不一致(深链场景),sync 到 URL
+      if (urlSessionId && urlSessionId !== activeId) {
+        switchSession(urlSessionId);
+      }
+      return;
+    }
+    if (prevUrlSessionIdRef.current === urlSessionId) return;
+    prevUrlSessionIdRef.current = urlSessionId ?? null;
+    // urlSessionId 真变化(浏览器前进后退 / 直接改 URL)→ sync 到 URL
     if (urlSessionId && urlSessionId !== activeId) {
       switchSession(urlSessionId);
     }
