@@ -73,13 +73,34 @@ describe('dedupeMessagesByContent', () => {
     expect(result).toHaveLength(2);
   });
 
-  it('does not merge empty vs non-empty text', () => {
-    // 已知限制:empty text 和 non-empty text 视为不同(用户 session BY6iyv34L0 命中此情况)。
-    // 后续如果需要可以增强(优先保留 non-empty)。
-    const m1 = msg('a', 'assistant', '');
-    const m2 = msg('b', 'assistant', '目前资料库...');
-    const result = dedupeMessagesByContent([m1, m2]);
-    expect(result).toHaveLength(2);
+  it('drops empty-text placeholder when same role has a non-empty one (2026-08-05 增强)', () => {
+    // 历史场景:localStorage 里有 a_195(后端 numeric id, parts=[], text="")和
+    // a_nanoid(客户端 id, parts=full, text="目前...")共存。
+    // 严格 dedupe by content 会保留两条 → 用户看到空消息气泡 + 满消息气泡两条 assistant。
+    // 增强版 dedupe:同 role 下空文本被非空文本"压制" → 只保留满那条。
+    const empty = msg('195', 'assistant', '');
+    const full = msg('2ceMsx0IK3ABMHID', 'assistant', '目前资料库还没收录...');
+    const result = dedupeMessagesByContent([empty, full]);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('2ceMsx0IK3ABMHID');
+  });
+
+  it('keeps empty-text message if it is the only one for that role', () => {
+    const empty = msg('a', 'assistant', '');
+    const result = dedupeMessagesByContent([empty]);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('a');
+  });
+
+  it('drops empty-text placeholder regardless of order', () => {
+    const empty = msg('195', 'assistant', '');
+    const full = msg('abc', 'assistant', '目前资料库...');
+    const r1 = dedupeMessagesByContent([empty, full]);
+    const r2 = dedupeMessagesByContent([full, empty]);
+    expect(r1).toHaveLength(1);
+    expect(r1[0].id).toBe('abc');
+    expect(r2).toHaveLength(1);
+    expect(r2[0].id).toBe('abc');
   });
 
   it('returns empty array on empty input', () => {
@@ -98,9 +119,10 @@ describe('dedupeUIMessages', () => {
     ];
     const result = dedupeUIMessages(messages);
     // user 的两条内容相同,合并为 1 条(保留第一个)
-    // assistant 的两条内容不同(empty vs full),均保留
-    expect(result).toHaveLength(3);
-    expect(result.map((m) => m.role)).toEqual(['user', 'assistant', 'assistant']);
+    // assistant 的两条中 empty 被同 role 非空"压制" → 只保留满的
+    expect(result).toHaveLength(2);
+    expect(result.map((m) => m.role)).toEqual(['user', 'assistant']);
     expect(result[0].id).toBe('eHvcXURT55jDoGha');
+    expect(result[1].id).toBe('2ceMsx0IK3ABMHID');
   });
 });

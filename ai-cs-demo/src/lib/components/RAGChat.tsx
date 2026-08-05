@@ -186,13 +186,19 @@ export function RAGChat() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastPartsSnapshotRef = useRef('');
+  // 切 session 时不自动 scrollIntoView(避免滚动动画在视觉上像"闪烁");
+  // 只在 AI 流式生成时 follow scroll。session 切换交给用户手动控制滚动位置。
   useEffect(() => {
     const last = messages[messages.length - 1] as unknown as { parts?: unknown[] } | undefined;
     const snap = JSON.stringify(last?.parts ?? []);
     if (snap === lastPartsSnapshotRef.current) return;
     lastPartsSnapshotRef.current = snap;
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages]);
+    // 仅在 submitted/streaming 状态(send 后 / AI 流式中)→ follow scroll to bottom
+    // 其他情况(message 已完成 / 切 session):不自动滚,避免视图跳动
+    if (status === 'submitted' || status === 'streaming') {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+    }
+  }, [messages, status]);
 
   /* eslint-disable react-hooks/set-state-in-effect -- 同步 messages/status → derived streamError(imperative reset 由 handleErrorAction 单独维护) */
   useEffect(() => {
