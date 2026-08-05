@@ -182,45 +182,69 @@ export function useSessions() {
   }, [sessions]);
 
   /**
-   * 创建一个**已和后端对齐**的 session,返回 `{ sessionKey, backendId }`。
-   * 二阶段:前端生 sessionKey(per browser)→ 走后端 upsert 拿 backendId → prepend。
+   * 创建一个 session,**同步**生成 sessionKey 并把它写到 sessions 列表(临时占位
+   * id 用负数 backendId 兜底位),**异步**走 upsert 拿真 backendId 替换。
    *
-   * cs-round-010 的「draft 模式」(activeId=null,等首条消息再真创建)仍保留;
-   * createSession 由 RAGChat.send() 检测到 activeId===null 时调用。
+   * cs-round-013 修法:之前 await 后才 setActiveId,导致 send 路径里 sendMessage
+   * 在 await 期间不会被调用,但 React 19 + Strict Mode dev 下 effect 双跑会再次触发
+   * send,造成 user message 重复 + sidebar 双 session 出现。
+   *
+   * 现在 createSession 同步返 sessionKey + 立即 setActiveId(临时 id),sendMessage
+   * 立即执行;upsert 完成后 effect 替换 sessions 里的临时 id 为 backendId。
+   *
+   * 临时 id 用负数(避免和后端正数 backendId 冲突),取值 = -(Date.now()) 唯一。
    */
   const createSession = useCallback(
-    async (opts?: {
-      title?: string;
-      sessionKey?: string;
-    }): Promise<{ sessionKey: string; backendId: number }> => {
+    (opts?: { title?: string; sessionKey?: string }): { sessionKey: string; tempId: number } => {
       const sessionKey =
-        opts?.sessionKey ??
-        `cs-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        opts?.sessionKey ?? `cs-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const tempId = -Date.now(); // 负数避免和后端正数 id 冲突
       const visitorId = getVisitorId();
-      const res = await fetch('/api/sessions/upsert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionKey,
-          visitorId,
-          title: opts?.title ?? DEFAULT_TITLE,
-        }),
-      });
-      if (!res.ok) throw new Error(`createSession upsert failed: ${res.status}`);
-      const json = (await res.json()) as { id: number };
-      const backendId = json.id;
+
       const newSession: Session = {
-        id: backendId,
+        id: tempId,
         sessionKey,
         title: opts?.title ?? DEFAULT_TITLE,
         messageCount: 0,
         startedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      activeIdRef.current = String(backendId);
-      setSessions((prev) => [newSession, ...prev.filter((s) => s.id !== backendId)]);
-      setActiveId(String(backendId));
-      return { sessionKey, backendId };
+      activeIdRef.current = String(tempId);
+      setSessions((prev) => [newSession, ...prev.filter((s) => s.id !== tempId)]);
+      setActiveId(String(tempId));
+
+      // 异步 upsert — 完成后用 effect 把 sessions 里 tempId 替换为 backendId,
+      // 并把 activeId 从 tempId 切到 backendId(url 同步跟过去)。
+      void (async () => {
+        try {
+          const res = await fetch('/api/sessions/upsert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionKey,
+              visitorId,
+              title: opts?.title ?? DEFAULT_TITLE,
+            }),
+          });
+          if (!res.ok) {
+            console.warn('[createSession] upsert failed:', res.status);
+            return;
+          }
+          const json = (await res.json()) as { id: number };
+          const backendId = json.id;
+          if (backendId === tempId) return;
+          // 替换 tempId → backendId
+          activeIdRef.current = String(backendId);
+          setSessions((prev) =>
+            prev.map((s) => (s.id === tempId ? { ...s, id: backendId } : s)),
+          );
+          setActiveId((cur) => (cur === String(tempId) ? String(backendId) : cur));
+        } catch (e) {
+          console.warn('[createSession] upsert error:', (e as Error).message);
+        }
+      })();
+
+      return { sessionKey, tempId };
     },
     [],
   );
@@ -292,7 +316,8 @@ export function useSessions() {
       const currentActiveId = activeIdRef.current;
       if (!currentActiveId) return;
       const backendId = Number(currentActiveId);
-      if (!Number.isInteger(backendId)) return;
+      // 仅在 backendId(正数)期间更新;tempId(负数,upsert 进行中)跳过
+      if (!Number.isInteger(backendId) || backendId <= 0) return;
       const target = sessionsRef.current.find((s) => s.id === backendId);
       if (!target) return;
       const newTitle = deriveTitle(messages, target.title);

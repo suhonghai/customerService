@@ -111,21 +111,28 @@ describe('useSessions — cs-round-013 (backend-driven, no localStorage)', () =>
     act(() => {
       result.current.enterDraft();
     });
-    let backendId = 0;
+    let tempId = 0;
     let sessionKey = '';
-    await act(async () => {
-      const r = await result.current.createSession({ title: '查订单' });
-      backendId = r.backendId;
+    act(() => {
+      const r = result.current.createSession({ title: '查订单' });
+      tempId = r.tempId;
       sessionKey = r.sessionKey;
     });
 
-    // Then
-    expect(backendId).toBe(999); // mock 返 999
+    // Then — 同步 setActiveId(tempId 负数),title 写入,upsert 异步进行
+    expect(tempId).toBeLessThan(0); // 负数临时 id
     expect(sessionKey).toMatch(/^cs-/); // 自动生成 sessionKey
     expect(result.current.sessions).toHaveLength(1);
-    expect(result.current.sessions[0].id).toBe(999);
+    expect(result.current.sessions[0].id).toBe(tempId);
     expect(result.current.sessions[0].title).toBe('查订单');
+    expect(result.current.activeId).toBe(String(tempId));
+
+    // And — 等异步 upsert 完成(tempId 替换为 backendId=999)
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     expect(result.current.activeId).toBe('999');
+    expect(result.current.sessions[0].id).toBe(999);
   });
 
   it('deleteSession(id) → 走后端 DELETE,失败抛 Error', async () => {

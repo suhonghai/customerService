@@ -234,6 +234,50 @@ export function RAGChat() {
     if (last) setAbortedIds((prev) => new Set(prev).add(last.id));
     stop();
   }
+  function send(text: string) {
+    setStreamError(null);
+    const userId = getClientUserId();
+    const customerId = getClientCustomerId();
+    // cs-round-013:draft 态(activeId=null)发首条消息 → 同步创建 session 占位,
+    // 立刻 sendMessage。后端 upsert 异步进行,backendId 异步到位后 sidebar 自动更新。
+    let currentActiveId = activeId;
+    let currentSessionKey: string | null = activeSession?.sessionKey ?? null;
+    if (!currentActiveId) {
+      const userMsg = { role: 'user' as const, parts: [{ type: 'text' as const, text }] };
+      const title = deriveTitleFromMessage(
+        userMsg as unknown as Parameters<typeof deriveTitleFromMessage>[0],
+      );
+      // 同步:createSession 立即 setActiveId(tempId) + 立即返回 sessionKey
+      const { sessionKey, tempId } = createSession({ title });
+      currentActiveId = String(tempId);
+      currentSessionKey = sessionKey;
+      router.replace(`/chat/${tempId}`);
+    }
+    sendMessage(
+      { text },
+      {
+        body: {
+          topK,
+          sessionKey: currentSessionKey ?? currentActiveId,
+          visitorId: visitorIdRef.current ?? 'anon',
+          userId,
+          customerId,
+        },
+      },
+    );
+  }
+  function onSubmit(e?: FormEvent) {
+    if (e) e.preventDefault();
+    if (!input.trim() || isLoading) return;
+    const text = input;
+    setInput('');
+    send(text);
+  }
+  function handleQuickQuestion(q: string) {
+    if (isLoading) return;
+    setInput('');
+    send(q);
+  }
   function handleSwitchSession(id: string) {
     if (id !== activeId) {
       stop();
@@ -274,49 +318,6 @@ export function RAGChat() {
       setStreamError(null);
     }
     if (type === 'reset') setDeleteError(null);
-  }
-  async function send(text: string) {
-    setStreamError(null);
-    const userId = getClientUserId();
-    const customerId = getClientCustomerId();
-    // cs-round-013:draft 态(activeId=null)发首条消息 → 真创建 session,
-    // title 由首条消息文本派生(过 sanitizeTitle 脱敏 + 截 30 字)。
-    let currentActiveId = activeId;
-    let currentSessionKey: string | null = activeSession?.sessionKey ?? null;
-    if (!currentActiveId) {
-      const userMsg = { role: 'user' as const, parts: [{ type: 'text' as const, text }] };
-      const title = deriveTitleFromMessage(
-        userMsg as unknown as Parameters<typeof deriveTitleFromMessage>[0],
-      );
-      const { sessionKey, backendId } = await createSession({ title });
-      currentActiveId = String(backendId);
-      currentSessionKey = sessionKey;
-      router.replace(`/chat/${backendId}`);
-    }
-    sendMessage(
-      { text },
-      {
-        body: {
-          topK,
-          sessionKey: currentSessionKey ?? currentActiveId,
-          visitorId: visitorIdRef.current ?? 'anon',
-          userId,
-          customerId,
-        },
-      },
-    );
-  }
-  function onSubmit(e?: FormEvent) {
-    if (e) e.preventDefault();
-    if (!input.trim() || isLoading) return;
-    const text = input;
-    setInput('');
-    void send(text);
-  }
-  function handleQuickQuestion(q: string) {
-    if (isLoading) return;
-    setInput('');
-    void send(q);
   }
   const debugTrace = process.env.NEXT_PUBLIC_DEBUG_TRACE === 'true';
   const debugRetrieval = process.env.NEXT_PUBLIC_DEBUG_RETRIEVAL === 'true';

@@ -1,0 +1,20 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic [ref=f2e4]:
+      - generic [ref=f2e5]: 🛍️
+      - generic [ref=f2e6]:
+        - heading "小服客服" [level=1] [ref=f2e7]
+        - generic [ref=f2e8]: 登录后开始对话
+    - generic [ref=f2e9]:
+      - button "邮箱 + 密码" [ref=f2e10]
+      - button "手机号验证" [ref=f2e11]
+    - generic [ref=f2e12]:
+      - generic [ref=f2e13]:
+        - generic [ref=f2e14]: 邮箱
+        - textbox "邮箱" [ref=f2e15]
+      - generic [ref=f2e16]:
+        - generic [ref=f2e17]: 密码
+        - textbox "至少 6 位" [ref=f2e18]
+      - button "登录" [ref=f2e19]
+    - generic [ref=f2e20]: 登录即代表您同意 V1 服务条款(详见 README)
+  - button "Open Next.js Dev Tools" [ref=f2e26] [cursor=pointer]

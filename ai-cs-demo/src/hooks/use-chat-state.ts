@@ -68,8 +68,9 @@ export function useChatState({
   useEffect(() => {
     if (!activeId) return;
     const backendIdNum = Number(activeId);
-    // activeId 必须是数字 id;draft(null) / 非数字 直接早返
-    if (!Number.isInteger(backendIdNum)) return;
+    // activeId 必须是**正**整数 backendId;draft(null) / 非数字 / tempId(负数,创建会话中)
+    // 早返 — tempId 期间不 fetch /history(前端已经 sendMessage 在 stream,不需要拉)
+    if (!Number.isInteger(backendIdNum) || backendIdNum <= 0) return;
     let cancelled = false;
     setHistoryLoading(true);
     setBackendSessionId(backendIdNum);

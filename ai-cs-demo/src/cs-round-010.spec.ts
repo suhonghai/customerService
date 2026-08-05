@@ -210,23 +210,28 @@ describe('cs-round-010: 点 + 新会话 → 懒创建', () => {
           result.current.enterDraft();
         });
 
-        // When — 首条消息触发真创建
+        // When — 首条消息触发真创建(同步 setActiveId(tempId),后端异步替换)
         let newId = '';
-        await act(async () => {
-          const r = await result.current.createSession({ title: '查一下我的订单' });
-          newId = String(r.backendId);
+        act(() => {
+          const r = result.current.createSession({ title: '查一下我的订单' });
+          newId = String(r.tempId);
         });
 
-        // Then — 新 session 在列表顶部
+        // Then — 同步:新 session 在列表顶部,tempId 是负数
         expect(result.current.sessions).toHaveLength(1);
         expect(result.current.sessions[0].id).toBe(Number(newId));
         expect(result.current.sessions[0].title).toBe('查一下我的订单');
+        expect(Number(newId)).toBeLessThan(0); // tempId 负数
 
-        // And — id 是 backend 数字 id(>0)
-        expect(Number(newId)).toBeGreaterThan(0);
-
-        // And — activeId 切到新 id
+        // And — activeId 切到新 tempId
         expect(result.current.activeId).toBe(newId);
+
+        // And — 等异步 upsert 完成
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 50));
+        });
+        expect(result.current.activeId).toBe('999'); // backendId
+        expect(result.current.sessions[0].id).toBe(999);
       });
     });
   });
