@@ -253,6 +253,30 @@ export function RAGChat() {
     messagesRef.current = messages;
   }, [messages]);
 
+  // W11(2026-08-05):stream 完成兜底 — 如果 status 变成 ready/error 但最后一条
+  // assistant 还是空(前端 stream chunks 丢失 / 客户端断流),自动 refetch backend history。
+  // backend 端的 req.signal 已 detach(commit 6583e1b),即使 client 断开 backend
+  // 仍跑完 stream 并 PATCH status=1 + 完整内容 → refetch 能拿到真值。
+  useEffect(() => {
+    if (status !== 'ready' && status !== 'error') return;
+    if (!backendSessionId) return;
+    // 仅在最后一条 assistant 为空时触发(避免每次 ready 都 refetch)
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (!m || m.role !== 'assistant') continue;
+      const text = ((m.parts ?? []) as Array<{ type?: string; text?: string }>)
+        .filter((p) => p.type === 'text')
+        .map((p) => p.text ?? '')
+        .join('');
+      if (!text) {
+        refetchHistoryRef.current?.(backendSessionId);
+      }
+      break; // 只看最后一条 assistant
+    }
+    // status/backendSessionId/messages 任一变化即重跑;refetchHistoryRef 是稳定 ref
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, backendSessionId, messages]);
+
   useRealtime({
     sessionKey: activeId,
     enabled: backendSessionId != null,
@@ -276,21 +300,12 @@ export function RAGChat() {
         return;
       }
       setMessages((prev) => {
-        // W11:按 content dedupe,不是按 id(见 src/lib/dedupe-messages.ts)。
-        // 客户端 nanoid id 与后端 numeric id 不同,旧实现留下"同内容重复 append"bug。
-        const seen = new Set(prev.map((m) => dedupeMessagesByContent([m])[0] ? `${m.role}:${(m.parts ?? []).filter((p) => (p as {type?: string}).type === 'text').map((p) => (p as {text?: string}).text ?? '').join('')}` : ''));
-        const result = [...prev];
-        for (const r of recovered) {
-          const text = (r.parts ?? [])
-            .filter((p) => (p as {type?: string}).type === 'text')
-            .map((p) => (p as {text?: string}).text ?? '')
-            .join('');
-          const key = `${r.role}:${text}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          result.push(r);
-        }
-        return result;
+        // 用 dedupeMessagesByContent(增强版:同 role 空文本被非空"压制")。
+        // 场景:prev = [user_msg, empty_assistant(streaming 卡住)],
+        //       recovered = [user_msg, full_assistant(backend 完整版)]。
+        // 严格 by-content dedupe 会两条都 append → 出现"empty + full" 双 assistant。
+        // 增强版 dedupe 会删 empty 留 full,只看到 1 条 assistant。
+        return dedupeMessagesByContent([...prev, ...recovered]);
       });
     },
     getKnownMessageIds: () => new Set(messagesRef.current.map((m) => m.id)),
