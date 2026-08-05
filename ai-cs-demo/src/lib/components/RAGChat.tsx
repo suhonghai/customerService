@@ -6,6 +6,7 @@ import { useChatWithErrors } from '@/hooks/use-chat-with-errors';
 import { useSessions, deriveTitleFromMessage } from '@/hooks/use-sessions';
 import { useChatState } from '@/hooks/use-chat-state';
 import { useRealtime, useRealtimeDisconnectOnUnmount } from '@/hooks/use-realtime';
+import { useAutoResumeStreaming } from '@/hooks/use-auto-resume-streaming';
 import { getVisitorId } from '@/lib/visitor';
 import { getClientUserId, getClientCustomerId, logoutRequest } from '@/lib/auth';
 import { scanStreamError } from '@/lib/stream-error-scanner';
@@ -318,6 +319,19 @@ export function RAGChat() {
     if (backendSessionId != null) refetchHistoryRef.current?.(backendSessionId);
   }, [status, backendSessionId]);
   useRealtimeDisconnectOnUnmount();
+
+  // cs-round-011:自动续推 — 监听 messages 列表里 metadata.isStreaming 项,
+  // 对每条触发 continueFromMessageId fetch,parse UI Message Stream chunks,
+  // 把新 text append 到 useChat messages 里同 id 那条上。
+  useAutoResumeStreaming({
+    messages,
+    setMessages: (updater) => setMessages(updater),
+    sessionKey: activeId,
+    visitorId: visitorIdRef.current ?? 'anon',
+    userId: getClientUserId(),
+    customerId: getClientCustomerId(),
+    topK,
+  });
 
   function handleStop() {
     const last = [...messages].reverse().find((m) => m.role === 'assistant');

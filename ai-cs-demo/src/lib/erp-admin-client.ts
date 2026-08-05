@@ -229,6 +229,19 @@ export class ErpAdminClient {
     );
   }
 
+  /**
+   * cs-round-011:拉单条消息(续推接口需要)。
+   * 用于客户端刷新后 / 点重试时,服务端拿到已有 partial content + parts 后
+   * 把续推的 LLM 输出 append 到这条 message 上(而不是开新 placeholder)。
+   * 404 / 不存在 → 服务端 4xx 拒绝 continueFromMessageId。
+   */
+  async getMessage(sessionId: number, msgId: number): Promise<StoredMessage> {
+    return this.request<StoredMessage>(
+      `/api/internal/cs/sessions/${sessionId}/messages/${msgId}`,
+      { method: 'GET' },
+    );
+  }
+
   async findOrderByNo(orderNo: string): Promise<OrderInfo> {
     return this.request<OrderInfo>(`/api/internal/cs/orders/${encodeURIComponent(orderNo)}`);
   }
