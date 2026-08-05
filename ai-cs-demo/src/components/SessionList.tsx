@@ -184,7 +184,11 @@ export function SessionList({
                   ) : (
                     <button
                       type="button"
-                      onClick={() => onSwitch(String(s.id))}
+                      onClick={() => {
+                        // cs-round-014:守卫 — 后端契约漏 id 时 (s.id === undefined) 不能拼出 /chat/undefined
+                        if (s.id == null) return;
+                        onSwitch(String(s.id));
+                      }}
                       className="w-full text-left px-3 py-2.5 pr-14 cursor-pointer transition-colors"
                       title={s.title}
                     >

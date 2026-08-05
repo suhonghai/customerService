@@ -132,6 +132,7 @@ export class InternalService {
     const rows = await this.prisma.csSession.findMany({
       where,
       select: {
+        id: true, // cs-round-014:前端 /chat/[sessionId] 路由靠这个数字 id 跳转,必须 select
         sessionKey: true,
         visitorId: true,
         userId: true,
@@ -144,6 +145,7 @@ export class InternalService {
       take: limit,
     });
     return rows.map((r) => ({
+      id: r.id, // cs-round-014:必带数字主键,前端 sidebar 切 session 走 router.replace(`/chat/${id}`)
       sessionKey: r.sessionKey,
       title: r.visitorName,
       visitorId: r.visitorId,

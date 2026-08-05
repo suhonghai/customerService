@@ -67,6 +67,8 @@ export class InternalController {
     @Query('limit') limit?: string,
   ): Promise<{
     sessions: Array<{
+      // cs-round-014:前端 /chat/[sessionId] 路由靠这个数字 id,必带
+      id: number;
       sessionKey: string;
       title: string | null;
       visitorId: string;
