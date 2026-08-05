@@ -10,14 +10,18 @@
  * 设计:
  *  - 按钮用 unicode「⋯」(horizontal ellipsis),跟 macOS / iOS 的「more」语义一致
  *  - 点击外部关闭(标准 popover 行为)
- *  - 空会话时两个菜单项都 disabled
+ *  - 空会话时两个菜单项都 disabled(用 session.messageCount 判定)
  *  - 沿用 ExportButtons 里的 download 触发方式(Blob + a.click + revoke)
  *
- * 不动:ExportButtons 组件本身保留(不在 page.tsx 渲染了,但留作回滚 / 测试用)
+ * cs-round-013:导出时临时 fetch `/api/sessions/[id]/history` 拿 messages
+ * (不再依赖 Session.messages 字段 — 列表 API 不返回 messages)。
  */
 
 import { useState, useRef, useEffect } from 'react';
+import type { UIMessage } from 'ai';
 import type { Session } from '@/hooks/use-sessions';
+import { storedToUIMessages } from '@/lib/refetch-history';
+import type { StoredMessage } from '@/lib/erp-admin-client';
 import { exportToJSON, exportToMarkdown, makeExportFilename } from '@/lib/export-session';
 
 export interface MoreMenuProps {
@@ -41,12 +45,22 @@ function triggerDownload(filename: string, content: string, mime: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** 临时拉 messages — 导出专用,不写入前端 useChat state */
+async function fetchMessagesForExport(backendId: number): Promise<UIMessage[]> {
+  const res = await fetch(`/api/sessions/${backendId}/history`);
+  if (!res.ok) throw new Error(`history fetch failed: ${res.status}`);
+  const json = (await res.json()) as { messages?: unknown };
+  const stored = Array.isArray(json.messages) ? (json.messages as StoredMessage[]) : [];
+  return storedToUIMessages(stored);
+}
+
 export function MoreMenu({ session, escalationMap }: MoreMenuProps) {
   const [open, setOpen] = useState(false);
   const [lastExport, setLastExport] = useState<string>('');
+  const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const isEmpty = session.messages.length === 0;
+  const isEmpty = session.messageCount === 0;
 
   // 点击外部关闭
   useEffect(() => {
@@ -70,33 +84,25 @@ export function MoreMenu({ session, escalationMap }: MoreMenuProps) {
     return () => document.removeEventListener('keydown', handler);
   }, [open]);
 
-  function handleJson() {
-    if (isEmpty) return;
+  async function doExport(kind: 'json' | 'md') {
+    if (isEmpty || busy) return;
+    setBusy(true);
     try {
-      const content = exportToJSON(session);
-      const filename = makeExportFilename(session, 'json');
-      triggerDownload(filename, content, 'application/json');
-      setLastExport(`JSON → ${filename}`);
+      const messages = await fetchMessagesForExport(session.id);
+      const content =
+        kind === 'json'
+          ? exportToJSON(session, messages)
+          : exportToMarkdown(session, messages, escalationMap);
+      const filename = makeExportFilename(session, kind);
+      triggerDownload(filename, content, kind === 'json' ? 'application/json' : 'text/markdown');
+      setLastExport(`${kind.toUpperCase()} → ${filename}`);
       setOpen(false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[MoreMenu] JSON export failed:', err);
-      setLastExport(`❌ JSON 导出失败: ${msg}`);
-    }
-  }
-
-  function handleMd() {
-    if (isEmpty) return;
-    try {
-      const content = exportToMarkdown(session, escalationMap);
-      const filename = makeExportFilename(session, 'md');
-      triggerDownload(filename, content, 'text/markdown');
-      setLastExport(`MD → ${filename}`);
-      setOpen(false);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error('[MoreMenu] MD export failed:', err);
-      setLastExport(`❌ MD 导出失败: ${msg}`);
+      console.error(`[MoreMenu] ${kind} export failed:`, err);
+      setLastExport(`❌ ${kind.toUpperCase()} 导出失败: ${msg}`);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -131,8 +137,8 @@ export function MoreMenu({ session, escalationMap }: MoreMenuProps) {
           <button
             type="button"
             role="menuitem"
-            onClick={handleJson}
-            disabled={isEmpty}
+            onClick={() => void doExport('json')}
+            disabled={isEmpty || busy}
             title={isEmpty ? '空会话没有内容可导出' : '导出当前会话为 JSON(完整结构)'}
             className="w-full text-left px-4 py-2.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ color: 'var(--text-primary)' }}
@@ -148,8 +154,8 @@ export function MoreMenu({ session, escalationMap }: MoreMenuProps) {
           <button
             type="button"
             role="menuitem"
-            onClick={handleMd}
-            disabled={isEmpty}
+            onClick={() => void doExport('md')}
+            disabled={isEmpty || busy}
             title={isEmpty ? '空会话没有内容可导出' : '导出当前会话为 Markdown(人类可读)'}
             className="w-full text-left px-4 py-2.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ color: 'var(--text-primary)' }}

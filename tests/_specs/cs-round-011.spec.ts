@@ -105,18 +105,27 @@ describe('cs-round-011: 流式回复抗中断', () => {
       expect(text).toMatch(/status\s*===?\s*2/i);
     });
 
-    // cs-round-012 增补:use-chat-state 必须**永远** fetch /history(不再因 loadedFromLocalRef=true 短路),
-    // 用 setMessages(prev => diff/append) 把后端有但本地没有的 message append 上去。
-    // 短路逻辑导致刷新看不到 assistant 消息的 bug。
-    it('Then [cs-round-012]: use-chat-state.ts 不再因 loadedFromLocalRef=true 跳过 /history fetch', () => {
+    // cs-round-013 增补:use-chat-state 不再依赖 localStorage;loadedFromLocalRef 网关
+    // 已删除,history fetch 是**唯一**消息加载路径(activeId 是 backend 数字 id)。
+    it('Then [cs-round-013]: use-chat-state.ts 不再持有 loadedFromLocalRef', () => {
       const path = resolve(ROOT, 'ai-cs-demo/src/hooks/use-chat-state.ts');
       const text = readFileSync(path, 'utf-8');
-      // 短路逻辑已被删除:不允许出现 `if (loadedFromLocalRef.current) return;`
-      expect(text).not.toMatch(/if\s*\(\s*loadedFromLocalRef\.current\s*\)\s*return/);
-      // 一定有 diff/append 模式:setMessages((prev) => [...prev, ...newFromBackend])
+      // 删掉所有注释行(// 行 + jsdoc 块 /** ... */)。jsdoc 检测:
+      // 注释段开始 /*,*/ 结束;段内整段过滤。
+      const lines = text.split('\n');
+      const codeOnly = lines
+        .filter((line) => {
+          const t = line.trimStart();
+          if (t.startsWith('//')) return false;
+          if (t.startsWith('/*') || t.startsWith('*') || t.startsWith('*/')) return false;
+          return true;
+        })
+        .join('\n');
+      expect(codeOnly).not.toMatch(/loadedFromLocalRef/);
+      // 一定有 setHistoryLoading(切 session loading 网关)
+      expect(text).toMatch(/setHistoryLoading/);
+      // diff/append 模式保留
       expect(text).toMatch(/newFromBackend|localIds/i);
-      // 用 refetch-history 的纯函数做转换
-      expect(text).toMatch(/storedToUIMessages/);
     });
   });
 

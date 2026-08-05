@@ -13,13 +13,14 @@ interface SessionListProps {
 }
 
 /** 渲染 "x 分钟前 / x 小时前 / x 天前" 这种相对时间,中文,简洁 */
-function relativeTime(ts: number): string {
-  const diff = Date.now() - ts
+function relativeTime(ts: string | number): string {
+  const t = typeof ts === 'string' ? new Date(ts).getTime() : ts
+  const diff = Date.now() - t
   if (diff < 60_000) return '刚刚'
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
   if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} 天前`
-  const d = new Date(ts)
+  const d = new Date(t)
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
@@ -46,7 +47,7 @@ export function SessionList({
   const [editingValue, setEditingValue] = useState('')
 
   function startEdit(s: Session) {
-    setEditingId(s.id)
+    setEditingId(String(s.id))
     setEditingValue(s.title)
   }
 
@@ -65,7 +66,7 @@ export function SessionList({
 
   function handleDeleteClick(s: Session) {
     const msg = `确认删除会话「${s.title}」?此操作不可恢复。`
-    if (confirm(msg)) onDelete(s.id)
+    if (confirm(msg)) onDelete(String(s.id))
   }
 
   return (
@@ -132,9 +133,10 @@ export function SessionList({
         ) : (
           <ul className="py-2">
             {sessions.map(s => {
-              const isActive = s.id === activeId
-              const isEditing = s.id === editingId
-              const messageCount = s.messages.length
+              const isActive = String(s.id) === activeId
+              const isEditing = String(s.id) === editingId
+              // cs-round-013:messageCount 来自后端字段(不在前端持久化 messages)
+              const messageCount = s.messageCount
               return (
                 <li
                   key={s.id}
@@ -182,7 +184,7 @@ export function SessionList({
                   ) : (
                     <button
                       type="button"
-                      onClick={() => onSwitch(s.id)}
+                      onClick={() => onSwitch(String(s.id))}
                       className="w-full text-left px-3 py-2.5 pr-14 cursor-pointer transition-colors"
                       title={s.title}
                     >

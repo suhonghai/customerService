@@ -2,16 +2,21 @@
  * F7 Day 9:单会话导出(纯函数,前端 / 测试都可调)
  *
  * 提供两个序列化器:
- *   - exportToJSON(session) → 完整 session 对象,适合备份 / 二次分析
- *   - exportToMarkdown(session) → 人类可读,适合贴到工单 / 知识库
+ *   - exportToJSON(session, messages) → 完整 session 对象,适合备份 / 二次分析
+ *   - exportToMarkdown(session, messages) → 人类可读,适合贴到工单 / 知识库
  *
  * 设计:
  *   - 不依赖 React,纯字符串处理 → 单元测试友好
  *   - JSON 含 parts / metadata / escalationMap 全量(可重建 UI)
  *   - Markdown 把 reasoning / tool-* 折成引用块 + emoji,人工一眼能看
+ *
+ * cs-round-013:`messages` 不再内联在 Session 上(前端不做持久化),由调用方
+ * 在导出时临时 fetch `/api/sessions/[id]/history` 拿到。Session 仅含元数据
+ * (id / title / startedAt / updatedAt / messageCount)。
  */
 
 import type { Session } from '@/hooks/use-sessions';
+import type { UIMessage } from 'ai';
 
 /* ===== JSON ===== */
 
@@ -19,7 +24,7 @@ import type { Session } from '@/hooks/use-sessions';
  * 把 session 序列化成 JSON 字符串。
  * 用 JSON.stringify(_, null, 2) 缩进 2 空格,人类 + 机器都友好。
  */
-export function exportToJSON(session: Session): string {
+export function exportToJSON(session: Session, messages: UIMessage[]): string {
   // 显式列举字段(避免泄漏 message 内部未文档化的字段)
   const payload = {
     version: 1,
@@ -27,11 +32,12 @@ export function exportToJSON(session: Session): string {
     session: {
       id: session.id,
       title: session.title,
-      createdAt: session.createdAt,
+      startedAt: session.startedAt,
       updatedAt: session.updatedAt,
-      createdAtISO: new Date(session.createdAt).toISOString(),
+      startedAtISO: new Date(session.startedAt).toISOString(),
       updatedAtISO: new Date(session.updatedAt).toISOString(),
-      messages: session.messages,
+      messageCount: messages.length,
+      messages,
     },
   };
   return JSON.stringify(payload, null, 2);
@@ -196,15 +202,16 @@ function describeMetadata(metadata: ExportMetadata | undefined): string {
  */
 export function exportToMarkdown(
   session: Session,
+  messages: UIMessage[],
   escalationMap?: Record<
     string,
     { escalationId: string; estimatedWaitMinutes: number; urgency: string }
   >,
 ): string {
   const lines: string[] = [];
-  const created = new Date(session.createdAt).toLocaleString('zh-CN');
+  const created = new Date(session.startedAt).toLocaleString('zh-CN');
   const updated = new Date(session.updatedAt).toLocaleString('zh-CN');
-  const msgCount = session.messages.length;
+  const msgCount = messages.length;
 
   lines.push(`# ${session.title || '(无标题)'}`);
   lines.push('');
@@ -222,7 +229,7 @@ export function exportToMarkdown(
     return lines.join('\n');
   }
 
-  session.messages.forEach((m, idx) => {
+  messages.forEach((m, idx) => {
     // AI SDK 6.x UIMessage.metadata 是 unknown(用户自定义),这里 cast 到 ExportMetadata 子集
     const meta = m.metadata as ExportMetadata | undefined
     const ts = meta?.messageCreatedAt
