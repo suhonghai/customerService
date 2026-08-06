@@ -853,10 +853,58 @@ ${contextBlock}`;
               },
             }),
           );
-          // writer.merge 是 fire-and-forget(void 返回);source stream(也就是 streamText)
-          // 继续跑。client 断开后 merge 内部 enqueue 抛错会被 SDK 自己吞(或写进内部队列),
-          // 不应阻断 streamText — 已包在 route handler 的 try/finally 里。
-          writer.merge(uiStream);
+          // cs-round-024:用 uiStream.tee() 把流一分为二 ——
+          //
+          //   clientStream ──→ writer.merge()   (可被 cancel:client disconnect 时
+          //                                        这一支抛错 → safeEnqueue 吞 → merge
+          //                                        任务 resolve,**不污染 source**)
+          //   bgStream     ──→ 后台 fire-and-forget drain(永不 cancel,持续 read →
+          //                                        把 source streamText 续命,允许其跑完)
+          //
+          // 为什么需要 tee 而不是直接 writer.merge(uiStream):
+          //   根因猜想:writer.merge 内部 + outer stream 的 pipeTo chain(经 JsonToSse /
+          //   TextEncoder 推到 Response body)在 client disconnect 时,cancel 沿管道回传,
+          //   最终可能在某种路径下让 uiStream / streamText 提前终止 → 0 chunk →
+          //   AI SDK 抛 AI_NoOutputGeneratedError → onError PATCH status=4 → 前端看到
+          //   error type chunk + status=4(误导)。
+          //   (实际 cancel 路径已在 ai/dist/index.mjs:8885-8901 验证:writer.merge
+          //   用的是 getReader()+read() 而非 pipeTo,但 outer stream 经 createUIMessage
+          //   StreamResponse 的 sseStream.pipeThrough(TextEncoderStream()) 在 client
+          //   disconnect 时仍 cancel → safeEnqueue 后续 enqueue 抛错吞掉。整体路径虽
+          //   与 pipeTo cancel 直接回传不完全一致,但 tee+drain 的防御性方案在任一路径
+          //   下都能保证 source 持续有 reader,从而 streamText 自然跑完。)
+          //
+          // tee 原理:Web Streams spec —— tee() 把 readable 拆成两路,所有分支都 close
+          //   source 才完结;只要后台 drain 持续 read,bgStream 不会 close → source
+          //   (streamText)继续推 chunk → onFinish → PATCH status=1。
+          //
+          // 复现场景:用户问完问题立即刷新页面 → client disconnect → outer pipe chain
+          //   cancel → clientStream 这一支被 cancel(merge 任务 resolve,但已 enqueue 的
+          //   safeEnqueue 吞错)→ bgStream 仍在 read → source 继续推 → streamText 自然
+          //   跑完 → DB 落 status=1 → 用户再进同一 URL 看到完整答案。**不再**触发
+          //   AI_NoOutputGeneratedError → 不再有 error type chunk → 不再有 status=4。
+          //
+          // 与 cs-round-023 的关系:cs-round-023 修 MCP client 不绑 req.signal(同一条
+          //   bug 链路的另一个入口 — MCP 子进程被 req.signal abort 杀掉)。cs-round-024
+          //   堵 outer pipe chain 这一支。两支都堵了,client disconnect 才能真正不再
+          //   误报 AI_NoOutputGeneratedError。
+          const [clientStream, bgStream] = uiStream.tee();
+          void (async () => {
+            const reader = bgStream.getReader();
+            try {
+              while (true) {
+                const { done } = await reader.read();
+                if (done) break;
+              }
+            } catch {
+              // 后台 drain 只为续命 source,不需 raise — AI SDK onError 会单独
+              // PATCH status=4(且仅在 streamText 真·业务错时触发,client disconnect
+              // 已通过 cs-round-023/024 不再传播到这里)。
+            } finally {
+              reader.releaseLock();
+            }
+          })();
+          writer.merge(clientStream);
 
           // 3) 等 streamText 自然完成 — 不管 client 是否还在(disconnect 不再 abort)
           try {
