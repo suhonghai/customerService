@@ -38,7 +38,16 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ id: session.id });
   } catch (e) {
-    console.error('[api/sessions/upsert] failed:', e);
-    return NextResponse.json({ error: (e as Error).message || 'upsert 失败' }, { status: 502 });
+    const raw = (e as Error).message || 'upsert 失败';
+    console.error('[api/sessions/upsert] failed:', raw);
+    // cs-round-019:透传 biz code,区分业务错 vs 真上游宕机。
+    // erp-admin-client.ts:138 把后端 code !== 0(BizException,HTTP 200)翻成
+    // Error("erp-admin 业务错误 code=50000: 服务器异常")。BFF catch 一律 502
+    // 把业务错伪装成上游宕机,用户看不到 code=50000 的具体语义。
+    // 修法:从 message 抓 code=NNNN,数字透传;抓不到(真网络错)走 'UPSTREAM' 哨兵。
+    const bizMatch = raw.match(/\bcode\s*=\s*(\d+)\b/);
+    const bizCode = bizMatch ? Number(bizMatch[1]) : null;
+    const isBiz = bizCode !== null;
+    return NextResponse.json({ error: raw, code: isBiz ? bizCode : 'UPSTREAM' }, { status: 502 });
   }
 }
