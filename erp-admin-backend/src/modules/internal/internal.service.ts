@@ -262,13 +262,16 @@ export class InternalService {
   //   返回完整字段(content + parts + metadata + status),前端可重渲染
   // ============================================================
   async getMessages(sessionId: number) {
-    // 校验 session 存在
+    // cs-round-016:软删后(中间件已加 deletedAt: null)findUnique 查不到 → 抛 NOT_FOUND。
+    // 之前用 BIZ_ERROR(40002)被 BFF 一律翻 502,前端 stale URL /chat/<deleted-id> 进入
+    // 触发 history 502 → 用户侧"接口报错"。改 BizCode.NOT_FOUND(1404) 后,BFF 翻 404 +
+    // 前端 useChatState 走降级路径(welcome)。
     const session = await this.prisma.csSession.findUnique({
       where: { id: sessionId },
       select: { id: true },
     });
     if (!session) {
-      throw new BizException(BizCode.BIZ_ERROR, '会话不存在');
+      throw new BizException(BizCode.NOT_FOUND, '会话不存在或已删除');
     }
 
     const messages = await this.prisma.csMessage.findMany({

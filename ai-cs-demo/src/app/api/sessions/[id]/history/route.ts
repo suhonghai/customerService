@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getErpAdminClient } from '@/lib/erp-admin-client'
+import { NextRequest, NextResponse } from 'next/server';
+import { getErpAdminClient } from '@/lib/erp-admin-client';
 
-export const runtime = 'nodejs'
+export const runtime = 'nodejs';
 
 /**
  * GET /api/sessions/:id/history — 拉会话所有消息(刷新恢复用)
@@ -15,27 +15,30 @@ export const runtime = 'nodejs'
  */
 
 function parseId(raw: string): number | null {
-  const n = Number(raw)
-  return Number.isInteger(n) && n > 0 ? n : null
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-export async function GET(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
-  const { id } = await ctx.params
-  const sessionId = parseId(id)
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const sessionId = parseId(id);
   if (sessionId == null) {
-    return NextResponse.json({ error: 'sessionId 非法' }, { status: 400 })
+    return NextResponse.json({ error: 'sessionId 非法' }, { status: 400 });
   }
   try {
-    const messages = await getErpAdminClient().getSessionMessages(sessionId)
-    return NextResponse.json({ messages })
+    const messages = await getErpAdminClient().getSessionMessages(sessionId);
+    return NextResponse.json({ messages });
   } catch (e) {
-    console.error('[api/sessions/:id/history] GET failed:', e)
+    const raw = (e as Error).message || '拉消息失败';
+    console.error('[api/sessions/:id/history] GET failed:', raw);
+    // cs-round-016:后端 getMessages 抛 BizCode.NOT_FOUND(1404)时 → 翻 404。
+    // 之前任何 BizException 都翻 502,前端 stale URL /chat/<deleted-id> 触发 history 502
+    // → 用户侧"接口报错"。会话不存在是用户级语义,不是上游宕机。
+    // 识别方式:errp-admin-client 抛出的 message 形如 `erp-admin 业务错误 code=1404: 会话不存在...`
+    const isNotFound = /\bcode\s*=\s*1404\b/.test(raw) || /会话不存在|已删除/.test(raw);
     return NextResponse.json(
-      { error: (e as Error).message || '拉消息失败' },
-      { status: 502 },
-    )
+      { error: raw, code: isNotFound ? 1404 : 'UPSTREAM' },
+      { status: isNotFound ? 404 : 502 },
+    );
   }
 }
