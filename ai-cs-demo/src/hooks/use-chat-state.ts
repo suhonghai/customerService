@@ -86,6 +86,13 @@ export function useChatState({
     if (!Number.isInteger(backendIdNum) || backendIdNum <= 0) return;
     let cancelled = false;
     setHistoryLoading(true);
+    // cs-round-020:切会话先清空 messages(右框不能残留上一会话消息)。
+    // 之前是只 setBackendSessionId,useChat 的 messages 常驻 → fetch /history 完成后
+    // diff/append 把上一会话 + 当前会话的消息合并显示(A 在上 B 在下)。
+    // setMessages([]) 后 fetch 回来 setMessages(restored) 直接替换 — diff/append
+    // 仍保留作 streaming metadata 同步的 defense-in-depth。
+    // 闪烁网关由 historyLoading 承担(ChatView 显示「正在加载…」)。
+    setMessages([]);
     setBackendSessionId(backendIdNum);
 
     void (async () => {
