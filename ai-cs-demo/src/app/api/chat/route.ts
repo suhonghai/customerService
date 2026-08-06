@@ -461,7 +461,11 @@ export async function POST(req: Request) {
     console.log(
       `[chat] active ai-config: modelId=${activeCfg.modelId} provider=${activeCfg.provider}`,
     );
-    const mcp = await createMcpStdioClient({ abortSignal: req.signal, cfg: activeCfg });
+    // cs-round-023:W11 invariant — streamText 不绑 req.signal(client disconnect 不该让
+    // server 放弃已生成内容);MCP 子进程也是 streamText 的依赖,生命周期对齐 streamText
+    // (由 finally 块的 mcp.close() 收)。绑 req.signal 会在客户端刷新瞬间杀掉 MCP 子进程,
+    // streamText 0 chunk → AI_NoOutputGeneratedError 误报。
+    const mcp = await createMcpStdioClient({ cfg: activeCfg });
     const mcpTools = (await mcp.listTools()) as unknown as ToolSet;
     const toolList = Object.keys(mcpTools);
     console.log(`[chat] MCP tools: ${toolList.join(', ')}`);
