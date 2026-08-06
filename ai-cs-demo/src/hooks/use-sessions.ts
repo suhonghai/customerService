@@ -195,7 +195,17 @@ export function useSessions() {
    * 临时 id 用负数(避免和后端正数 backendId 冲突),取值 = -(Date.now()) 唯一。
    */
   const createSession = useCallback(
-    (opts?: { title?: string; sessionKey?: string }): { sessionKey: string; tempId: number } => {
+    (opts?: {
+      title?: string;
+      sessionKey?: string;
+      /**
+       * cs-round-015:upsert 异步成功(拿到真 backendId)时触发。
+       * 用途:RAGChat 在此 callback 内 `router.replace('/chat/${backendId}')`,
+       *      把 URL 从 tempId 切到 backendId(URL 是 activeId 真相源,必须同步)。
+       * upsert 失败时**不**调 — 此时 activeId 保留 tempId,caller 应自行降级。
+       */
+      onCommit?: (backendId: number) => void;
+    }): { sessionKey: string; tempId: number } => {
       const sessionKey =
         opts?.sessionKey ?? `cs-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const tempId = -Date.now(); // 负数避免和后端正数 id 冲突
@@ -239,6 +249,9 @@ export function useSessions() {
             prev.map((s) => (s.id === tempId ? { ...s, id: backendId } : s)),
           );
           setActiveId((cur) => (cur === String(tempId) ? String(backendId) : cur));
+          // cs-round-015:通知 caller(典型:RAGChat)URL 同步切到 backendId。
+          // 注意:在 setSessions/setActiveId 之后调,caller 拿到的 router state 已是新值。
+          opts?.onCommit?.(backendId);
         } catch (e) {
           console.warn('[createSession] upsert error:', (e as Error).message);
         }

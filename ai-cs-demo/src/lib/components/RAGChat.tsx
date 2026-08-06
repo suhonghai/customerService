@@ -96,13 +96,8 @@ export function RAGChat() {
   // cs-round-013:切 session 闪烁网关改为 `historyLoading` state
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  const {
-    abortedIds,
-    setAbortedIds,
-    escalationMap,
-    setEscalationMap,
-    backendSessionId,
-  } = useChatState({ activeId, setMessages, setHistoryLoading });
+  const { abortedIds, setAbortedIds, escalationMap, setEscalationMap, backendSessionId } =
+    useChatState({ activeId, setMessages, setHistoryLoading });
 
   const sessionHasOperator = useMemo(
     () =>
@@ -140,7 +135,9 @@ export function RAGChat() {
 
   /* eslint-disable react-hooks/set-state-in-effect -- 同步 messages/status → derived streamError(imperative reset 由 handleErrorAction 单独维护) */
   useEffect(() => {
-    setStreamError(scanStreamError(messages as unknown as Parameters<typeof scanStreamError>[0], status));
+    setStreamError(
+      scanStreamError(messages as unknown as Parameters<typeof scanStreamError>[0], status),
+    );
   }, [messages, status]);
   /* eslint-enable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -186,7 +183,12 @@ export function RAGChat() {
   }, [status, backendSessionId, messages]);
 
   useRealtime({
-    sessionKey: activeId,
+    // cs-round-015:sessionKey 必须是**真 sessionKey**(后端 WS 网关按 string unique
+    // 查 csSession),不是后端数字主键 activeId(那是 backendId / tempId,DB 里查不到
+    // → "unknown sessionKey=221, disconnect" 风暴)。
+    // activeSession?.sessionKey 在 createSession 同步路径已写入,upsert 完成后浅拷贝
+    // 保留,sessionKey 全程不变 → useRealtime effect 不重连 ✓
+    sessionKey: activeSession?.sessionKey ?? null,
     enabled: backendSessionId != null,
     onMessage: (payload: OperatorReplyPayload) => {
       if (!payload || payload.sessionId !== backendSessionId) return;
@@ -222,7 +224,10 @@ export function RAGChat() {
   useAutoResumeStreaming({
     messages,
     setMessages: (updater) => setMessages(updater),
-    sessionKey: activeId,
+    // cs-round-015:同 useRealtime,真 sessionKey 走 activeSession.sessionKey
+    // (activeId 是后端数字主键,POST /api/chat 内部 upsertSession 会拿这个当新 sessionKey,
+    //  → 续推期间若 activeId 是 tempId / backendId 会污染后端 session 表)。
+    sessionKey: activeSession?.sessionKey ?? null,
     visitorId: visitorIdRef.current ?? 'anon',
     userId: getClientUserId(),
     customerId: getClientCustomerId(),
@@ -248,7 +253,12 @@ export function RAGChat() {
         userMsg as unknown as Parameters<typeof deriveTitleFromMessage>[0],
       );
       // 同步:createSession 立即 setActiveId(tempId) + 立即返回 sessionKey
-      const { sessionKey, tempId } = createSession({ title });
+      // cs-round-015:onCommit 在 upsert 拿到真 backendId 时触发 → router.replace
+      // 把 URL 从 tempId 切到 backendId(URL 是 activeId 真相源,不能停在 tempId)。
+      const { sessionKey, tempId } = createSession({
+        title,
+        onCommit: (backendId) => router.replace(`/chat/${backendId}`),
+      });
       currentActiveId = String(tempId);
       currentSessionKey = sessionKey;
       router.replace(`/chat/${tempId}`);
