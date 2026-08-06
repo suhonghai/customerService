@@ -76,6 +76,28 @@ export function storedToUIMessages(stored: StoredMessage[]): UIMessage[] {
         },
       } as unknown as UIMessage;
     }
+    // cs-round-021:status=3 interrupted → 标 aborted + 透传 backend abortedAt;
+    // **不**打 isStreaming → useAutoResumeStreaming 不会触发自动续推
+    // (用户主动 stop / 关 tab 后 status=3,刷新页面只看到 partial,不自动续推)
+    if (m.role === 'assistant' && m.status === 3) {
+      const rawAbortedAt = baseMeta['abortedAt'];
+      const abortedAt = typeof rawAbortedAt === 'string' ? rawAbortedAt : undefined;
+      return {
+        id: String(m.id),
+        role: m.role,
+        parts: Array.isArray(m.parts)
+          ? (m.parts as unknown as StoredPart[])
+          : m.content
+            ? [{ type: 'text', text: m.content }]
+            : [],
+        metadata: {
+          ...baseMeta,
+          aborted: true,
+          abortedAt,
+          isInterrupted: true,
+        },
+      } as unknown as UIMessage;
+    }
     // status=2/3 老逻辑:仅最后一条 assistant 标 isInterrupted(继续生成按钮)
     const interrupted = isLastAssistant && (m.status === 2 || m.status === 3);
     return {

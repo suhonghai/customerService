@@ -146,6 +146,8 @@ export function RAGChat() {
 
   const refetchHistoryRef = useRef<((sid: number) => Promise<void>) | undefined>(undefined);
   const pendingRefetchRef = useRef(false);
+  // cs-round-021:per-messageId dedupe set(operator_reply 收到过的 messageId,防重放 / 重连风暴)
+  const seenOperatorMessageIdsRef = useRef<Set<number>>(new Set());
   useEffect(() => {
     refetchHistoryRef.current = async (sid: number) => {
       try {
@@ -157,6 +159,15 @@ export function RAGChat() {
       }
     };
   }, [setMessages]);
+
+  // cs-round-021:W11 兜底 refetch 死循环堵死 — 记下「已 refetch 过的 (sessionId,
+  // lastAssistantId)」对,后续 effect 重跑时同对直接 break。否则 refetch → setMessages
+  // → messages 变 → effect 再跑 → 又 refetch,GET /history 风暴。
+  const w11RefetchDedupeRef = useRef<Set<string>>(new Set());
+  // 切会话(backendSessionId 变)清空 W11 dedupe set,避免无限增长
+  useEffect(() => {
+    w11RefetchDedupeRef.current.clear();
+  }, [backendSessionId]);
 
   // W11(2026-08-05):stream 完成兜底 — 如果 status 变成 ready/error 但最后一条
   // assistant 还是空(前端 stream chunks 丢失 / 客户端断流),自动 refetch backend history。
@@ -175,6 +186,12 @@ export function RAGChat() {
         .map((p) => p.text ?? '')
         .join('');
       if (!text) {
+        // cs-round-021:dedupe 锚 — (sessionId, lastAssistantId) 已 refetch 过则跳过
+        const dedupeKey = `${backendSessionId}:${m.id}`;
+        if (w11RefetchDedupeRef.current.has(dedupeKey)) {
+          break;
+        }
+        w11RefetchDedupeRef.current.add(dedupeKey);
         refetchHistoryRef.current?.(backendSessionId);
       }
       break;
@@ -192,6 +209,10 @@ export function RAGChat() {
     enabled: backendSessionId != null,
     onMessage: (payload: OperatorReplyPayload) => {
       if (!payload || payload.sessionId !== backendSessionId) return;
+      // cs-round-021:per-messageId dedupe — socket.io state recovery / 重连风暴可能
+      // 同一个 messageId 触发多次 onMessage;refetch 一次足够,后续同 messageId 跳过
+      if (seenOperatorMessageIdsRef.current.has(payload.messageId)) return;
+      seenOperatorMessageIdsRef.current.add(payload.messageId);
       if (status === 'submitted' || status === 'streaming') {
         pendingRefetchRef.current = true;
         return;

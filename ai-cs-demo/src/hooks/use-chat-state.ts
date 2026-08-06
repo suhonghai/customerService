@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { UIMessage } from 'ai';
 import { storedToUIMessages } from '@/lib/refetch-history';
 
@@ -64,8 +64,25 @@ export function useChatState({
   >({});
   const [backendSessionId, setBackendSessionId] = useState<number | null>(null);
 
+  // cs-round-021:history fetch dedupe refs —
+  //   fetchedSessionIdsRef:已成功 fetch 完的 sessionId(防御 StrictMode dev 双调 effect)
+  //   inFlightSessionIdRef:当前正在 fetch 的 sessionId(防止并发重入)
+  // prevActiveIdRef 区分「URL 变化(切会话)」vs「StrictMode 同 activeId 重跑」:
+  //   切会话 → 清空两个 ref,新会话正常 fetch
+  //   同 activeId 重跑 → 保留 ref,dedupe 拦住二次 fetch(防死循环)
+  const fetchedSessionIdsRef = useRef<Set<string>>(new Set());
+  const inFlightSessionIdRef = useRef<string | null>(null);
+  const prevActiveIdRef = useRef<string | null | undefined>(undefined);
+
   // activeId 变化 → setBackendSessionId + 总是 fetch /history 做 diff/append
   useEffect(() => {
+    // cs-round-021:切会话(URL 变化 → activeId 变)才清空 dedupe state;
+    // StrictMode 同 activeId 重跑不清空,dedupe 才能拦住重复 fetch。
+    if (prevActiveIdRef.current !== activeId) {
+      fetchedSessionIdsRef.current.clear();
+      inFlightSessionIdRef.current = null;
+      prevActiveIdRef.current = activeId ?? null;
+    }
     // cs-round-017:activeId=null = draft 态(点 + 新会话 / 删除最后一个会话),
     // 必须清三件事:
     //   1) setMessages([])         — 右框回到 welcome(6 quick questions)
@@ -84,6 +101,18 @@ export function useChatState({
     // activeId 必须是**正**整数 backendId;draft(null) / 非数字 / tempId(负数,创建会话中)
     // 早返 — tempId 期间不 fetch /history(前端已经 sendMessage 在 stream,不需要拉)
     if (!Number.isInteger(backendIdNum) || backendIdNum <= 0) return;
+
+    // cs-round-021:dedupe — 同 sessionId 已在 fetch(in-flight)或已 fetch 过,跳过 fetch 动作
+    // 跳过只省 fetch + setMessages,state 重置(setMessages([])/setBackendSessionId/setHistoryLoading)
+    // 仍执行 — 切会话的闪烁网关由 historyLoading 承担,不能因为 dedupe 跳过而留 stale。
+    if (
+      inFlightSessionIdRef.current === activeId ||
+      fetchedSessionIdsRef.current.has(activeId)
+    ) {
+      return;
+    }
+    inFlightSessionIdRef.current = activeId;
+
     let cancelled = false;
     setHistoryLoading(true);
     // cs-round-020:切会话先清空 messages(右框不能残留上一会话消息)。
@@ -127,12 +156,20 @@ export function useChatState({
       } catch (e) {
         console.warn('[use-chat-state] load history failed:', (e as Error).message);
       } finally {
-        if (!cancelled) setHistoryLoading(false);
+        if (!cancelled) {
+          // 标记完成 + 清 in-flight;切会话 effect 会整体清这两个 ref
+          inFlightSessionIdRef.current = null;
+          fetchedSessionIdsRef.current.add(activeId);
+          setHistoryLoading(false);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
+      // 注意:不在 cleanup 里清 inFlightSessionIdRef —
+      // StrictMode 同 activeId 重跑时,cleanup 后 effect 重跑,需要 in-flight 仍标记
+      // 才能拦住第二次 fetch(否则两边都打到 /history)
       setHistoryLoading(false);
     };
     // setMessages 是稳定函数,不进 deps;effect 只依赖 activeId
