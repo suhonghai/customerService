@@ -66,7 +66,20 @@ export function useChatState({
 
   // activeId 变化 → setBackendSessionId + 总是 fetch /history 做 diff/append
   useEffect(() => {
-    if (!activeId) return;
+    // cs-round-017:activeId=null = draft 态(点 + 新会话 / 删除最后一个会话),
+    // 必须清三件事:
+    //   1) setMessages([])         — 右框回到 welcome(6 quick questions)
+    //   2) setBackendSessionId(null) — 重置后端 id,避免 useRealtime 用 stale id 继续连 WS
+    //   3) setHistoryLoading(false) — 重置 loading,避免残留 spinner
+    // 之前是 `if (!activeId) return;` 早返,导致点 + 新会话后右框永远渲染上一会话的旧消息。
+    /* eslint-disable react-hooks/set-state-in-effect -- draft 同步重置 3 个 state,缺一会留下 stale */
+    if (!activeId) {
+      setMessages([]);
+      setBackendSessionId(null);
+      setHistoryLoading(false);
+      return;
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
     const backendIdNum = Number(activeId);
     // activeId 必须是**正**整数 backendId;draft(null) / 非数字 / tempId(负数,创建会话中)
     // 早返 — tempId 期间不 fetch /history(前端已经 sendMessage 在 stream,不需要拉)
