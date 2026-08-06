@@ -126,6 +126,47 @@ interface TextPart {
 }
 
 /**
+ * cs-round-022:判定一条 user message 是否「内容实质为空」。
+ *
+ * 触发场景:useAutoResumeStreaming.resumeOne(见
+ * src/hooks/use-auto-resume-streaming.ts)在 status=2 续推时,会 POST
+ * /api/chat body 塞一条合成 user:
+ *   { id: 'm_continue_<id>', role: 'user', parts: [{ type: 'text', text: '' }] }
+ * 这条不是真用户提问 —— 是触发服务端继续生成 assistant 流的「空消息 trigger」,
+ * 不能污染会话历史,否则 DB 多一条空 user row(UI 显示一个空 user bubble)。
+ *
+ * 判定逻辑(边界 case 要小心):
+ *  1. parts=[] 且 queryText 空 → 真合成空消息 → true
+ *  2. parts 全是空 text part + queryText 空/whitespace-only → true
+ *  3. 至少一个非 text 类型 part(如 tool-call / file / image)→ 不算空,保留
+ *  4. queryText 非空白 → 真用户提问 → false
+ *
+ * 注:此函数是 pure,不做防御性 throw;BFF 入口已经保证 messages/parts 形状合法。
+ */
+export function isEffectivelyEmptyUserMessage(queryText: string, parts: unknown[]): boolean {
+  if (!Array.isArray(parts)) return queryText.trim().length === 0;
+  // 1. 完全空 parts + 空 content
+  if (parts.length === 0 && queryText.length === 0) return true;
+  // 2. parts 全是空 text + content 空/whitespace-only
+  if (
+    parts.length > 0 &&
+    queryText.trim().length === 0 &&
+    parts.every(
+      (p: unknown) =>
+        typeof p === 'object' &&
+        p !== null &&
+        (p as { type?: unknown }).type === 'text' &&
+        (typeof (p as { text?: unknown }).text !== 'string' ||
+          ((p as { text?: string }).text as string).length === 0),
+    )
+  ) {
+    return true;
+  }
+  // 3/4. 非空(text 或带 tool/image part)→ 不算空
+  return false;
+}
+
+/**
  * W9-10 Day 6 (F3b):客服对话路由 —— RAG + MCP 4 工具 + 服务端持久化
  *
  * 设计(沿用 W5-6 的 Agent 模式 + 客服场景改造):
@@ -219,12 +260,24 @@ export async function POST(req: Request) {
       // 这里简化:每次都 append — 如果前端发了历史 messages,后端会按 id ASC 一致累加。
       // 如果用户重复发同一条(刷新场景下 click send),会重复 — 但 sendMessage 是创建新 UIMessage,
       // 不会重复,安全。
-      await erp.appendMessage(sessionId, {
-        role: 'user',
-        content: queryText,
-        parts: (lastUserMessage as unknown as { parts?: TextPart[] })?.parts ?? [],
-        status: 1,
-      });
+      // cs-round-022:useAutoResumeStreaming 续推时会 POST 一条合成空 user
+      // (parts=[{type:'text', text:''}],content=''),这条不是真用户提问,
+      // 跳过 appendMessage,避免 cs_message 多一条 status=1 content='' 的污染 row。
+      // 注:messages / lastUserMessage / streamText 上下文都不动 —— streamText
+      // 仍能从 body.messages 拿到那条合成 user,正常开始生成 assistant 流。
+      const lastParts = (lastUserMessage as unknown as { parts?: TextPart[] })?.parts ?? [];
+      if (isEffectivelyEmptyUserMessage(queryText, lastParts as unknown[])) {
+        console.warn(
+          `[chat] skip empty user appendMessage sessionId=${sessionId} (useAutoResumeStreaming 续推 trigger,非真用户提问) id=${String(lastUserMessage?.id ?? '')}`,
+        );
+      } else {
+        await erp.appendMessage(sessionId, {
+          role: 'user',
+          content: queryText,
+          parts: lastParts,
+          status: 1,
+        });
+      }
 
       // ============= W11 C3 (shared thread):转人工检测 — AI 闭嘴(必须在 placeholder 之前) =============
       //   业务:session 已 open 工单(已转人工)→ 客户发的后续消息不再调 LLM,
