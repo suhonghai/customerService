@@ -302,6 +302,13 @@ export function RAGChat() {
   }
   function handleDeleteSession(id: string) {
     stop();
+    // cs-round-018:删的是 active 会话时,先清 messages(useChat 内部 state)。
+    // 否则 useSessions.deleteSession 内部 setActiveId(next) 触发 useChatState effect
+    // fetch 新会话 /history → diff/append 时,prev 还是已删会话的消息 → 右框残留。
+    // 删非 active 不动 messages(activeId 不变,useChatState effect 不跑)。
+    if (id === activeId) {
+      setMessages([]);
+    }
     deleteSession(id)
       .then(() => {
         if (id === activeId) router.replace('/');
