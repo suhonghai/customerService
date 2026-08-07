@@ -30,6 +30,14 @@ export interface ChatViewProps {
   >;
   sessionHasOperator: boolean;
   activeId: string | null;
+  /**
+   * cs-round-028:字符串 sessionKey(per browser,nanoid 派生,格式如
+   * "cs-1786085192010-p4vw64ll")— 来自 useSessions 的 activeSession.sessionKey。
+   * 与 activeId(数字 sessionId 字符串,如 "285")严格区分,前者透传到
+   * EscalateButton → /api/escalate → 后端按 string unique 查 cs_session。
+   * 传错格式会让后端 silently null 化 cs_ticket.session_id,造成工单孤儿。
+   */
+  activeSessionKey: string | null;
   debugTrace: boolean;
   debugRetrieval: boolean;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
@@ -87,6 +95,7 @@ export function ChatView(props: ChatViewProps) {
     escalationMap,
     sessionHasOperator,
     activeId,
+    activeSessionKey,
     debugTrace,
     debugRetrieval,
     messagesEndRef,
@@ -205,7 +214,7 @@ export function ChatView(props: ChatViewProps) {
                         <EscalateButton
                           reason={text.slice(0, 200) || '需要人工协助'}
                           disabled={isLoading}
-                          sessionKey={activeId ?? ''}
+                          sessionKey={activeSessionKey ?? ''}
                           onEscalated={(info) =>
                             setEscalationMap((prev) => ({ ...prev, [m.id]: info }))
                           }
