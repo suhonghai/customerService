@@ -24,7 +24,7 @@ interface Props {
 
 /**
  * 工单三个操作弹窗:
- *   - AssignModal:选择客服,POST /tickets/:id/assign
+ *   - AssignModal:选择客服,PUT /tickets/:id/assign
  *   - StatusModal:选择新状态,PUT /tickets/:id/status
  *   - ReplyModal :回复内容,POST /tickets/:id/reply
  *

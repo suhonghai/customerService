@@ -67,7 +67,9 @@ export function useAssignTicket() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, assigneeId }: AssignVars) =>
-      request.post(`/tickets/${id}/assign`, { assigneeId }),
+      // cs-round-033:对齐后端 ticket.controller.ts:78 @Put(':id/assign') —
+      // 之前用 post 会 404;同 useUpdateTicketStatus 用 put,保持 REST 惯例
+      request.put(`/tickets/${id}/assign`, { assigneeId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
   });
 }

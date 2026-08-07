@@ -84,14 +84,15 @@ describe('use-tickets hooks', () => {
     expect(result.current.data).toEqual({ total: 100 });
   });
 
-  it('useAssignTicket POSTs /tickets/:id/assign and invalidates queries', async () => {
-    mockedPost.mockResolvedValueOnce({ ok: true });
+  it('useAssignTicket PUTs /tickets/:id/assign and invalidates queries', async () => {
+    // cs-round-033:对齐源文件 request.put(后端 @Put ':id/assign')
+    mockedPut.mockResolvedValueOnce({ ok: true });
     const { wrapper, qc } = makeWrapper();
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useAssignTicket(), { wrapper });
     result.current.mutate({ id: 7, assigneeId: 99 });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedPost).toHaveBeenCalledWith('/tickets/7/assign', { assigneeId: 99 });
+    expect(mockedPut).toHaveBeenCalledWith('/tickets/7/assign', { assigneeId: 99 });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tickets'] });
   });
 
