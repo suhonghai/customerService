@@ -74,6 +74,50 @@ export function useAutoResumeStreaming({
   }, [messages, sessionKey, visitorId, userId, customerId, topK, setMessages]);
 }
 
+/**
+ * cs-round-027:SSE chunk parser —— 把 raw stream text 拆成 UI Message Stream chunks。
+ *
+ * 标准 SSE 格式(AI SDK 6.x createUIMessageStreamResponse 输出):
+ *   data: <json>\n\n
+ *   data: <json>\n\n
+ *   ...
+ *
+ * 拆 event(\n\n 分隔)→ 剥 `data: ` 前缀 → JSON.parse → 返回 chunk 数组。
+ *
+ * 入参 `buffer` 是上次的残余(网络 read 可能切在 event 中间),保留到下次继续拆。
+ *
+ * 出参 `{ events, rest }`:events 是这次完整拆出的 chunks(JSON 解析成功),
+ * rest 是没拆完的残余(下次调用时拼到新 buffer 头部)。
+ *
+ * 异常:JSON.parse 失败的 event 静默丢弃(同之前 catch 行为)+ warn。
+ *   不抛错,保持 resumeOne 的 retry 路径。
+ */
+export function parseSseEvents(buffer: string): { events: unknown[]; rest: string } {
+  const events: unknown[] = [];
+  // 按双换行拆 SSE event;最后一段可能不完整,留到下次
+  const parts = buffer.split('\n\n');
+  const rest = parts.pop() ?? '';
+  for (const part of parts) {
+    if (!part.trim()) continue;
+    const dataLines = part.split('\n').filter((l) => l.startsWith('data:'));
+    if (dataLines.length === 0) continue;
+    // 多行 data: → 多行 JSON 拼接(SSE multi-line data 规范)
+    const json = dataLines.map((l) => l.slice(5).trimStart()).join('');
+    if (!json) continue;
+    try {
+      events.push(JSON.parse(json));
+    } catch (e) {
+      console.warn(
+        '[auto-resume] parse chunk failed:',
+        (e as Error).message,
+        'json:',
+        json.slice(0, 120),
+      );
+    }
+  }
+  return { events, rest };
+}
+
 async function resumeOne(args: {
   messageId: string;
   continueFromMessageId: number;
@@ -125,22 +169,20 @@ async function resumeOne(args: {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      // UI Message Stream parser(AI SDK 6.x 格式,chunk 行用换行分隔)
+      // cs-round-027:用 parseSseEvents 拆 SSE event(\n\n 分隔)→ 剥 data: 前缀 → JSON.parse
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        // 按行 split
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const chunk = JSON.parse(line) as { type?: string; id?: string; delta?: string; [k: string]: unknown };
-            handleStreamChunk(chunk, messageId, continueFromMessageId, setMessages);
-          } catch (e) {
-            console.warn('[auto-resume] parse chunk failed:', (e as Error).message);
-          }
+        const { events, rest } = parseSseEvents(buffer);
+        buffer = rest;
+        for (const chunk of events) {
+          handleStreamChunk(
+            chunk as Parameters<typeof handleStreamChunk>[0],
+            messageId,
+            continueFromMessageId,
+            setMessages,
+          );
         }
       }
       return true;
