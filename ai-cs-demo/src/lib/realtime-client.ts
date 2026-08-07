@@ -32,6 +32,16 @@ export interface TicketClosedPayload {
 }
 const ticketClosedHandlers = new Set<(p: TicketClosedPayload) => void>();
 
+// cs-round-037:工单创建事件(ai-cs 端订阅,收到后 setSessionHasOpenTicket(true) 显示 banner)
+//   防 RAGChat mount 时 ticket 还没创建 → useEffect 拉不到 → 永远不显示 banner 的竞态
+export interface TicketCreatedPayload {
+  ticketId: number;
+  ticketNo: string;
+  status: number;
+  priority: number;
+}
+const ticketCreatedHandlers = new Set<(p: TicketCreatedPayload) => void>();
+
 /**
  * Connect WS server, auth with sessionKey. Idempotent — re-using the same
  * sessionKey returns the existing socket. Reconnect is automatic.
@@ -82,6 +92,16 @@ export function connectRealtime(sessionKey: string): Socket {
       }
     });
   });
+  // cs-round-037:工单创建事件分发
+  socket.on('ticket_created', (payload: TicketCreatedPayload) => {
+    ticketCreatedHandlers.forEach((h) => {
+      try {
+        h(payload);
+      } catch (e) {
+        console.error('[realtime] ticket_created handler', e);
+      }
+    });
+  });
   return socket;
 }
 
@@ -99,6 +119,16 @@ export function onTicketClosed(
   ticketClosedHandlers.add(handler);
   return () => {
     ticketClosedHandlers.delete(handler);
+  };
+}
+
+// cs-round-037:订阅 ticket_created 事件,收到后 setSessionHasOpenTicket(true)
+export function onTicketCreated(
+  handler: (p: TicketCreatedPayload) => void,
+): () => void {
+  ticketCreatedHandlers.add(handler);
+  return () => {
+    ticketCreatedHandlers.delete(handler);
   };
 }
 

@@ -572,6 +572,26 @@ export class InternalService {
         this.logger.log(
           `escalation created: ticketNo=${ticket.ticketNo} id=${ticket.id} priority=${priority} sessionKey=${dto.sessionKey ?? 'n/a'}`,
         );
+
+        // cs-round-037:WS emit ticket_created 让 ai-cs 端立即感知并显示 banner
+        // (否则 useEffect mount 时 ticket 还没创建 → 永远 false,banner 永不显示)
+        if (sessionRow?.id) {
+          try {
+            this.realtime.server
+              .to(`session:${sessionRow.id}`)
+              .emit('ticket_created', {
+                ticketId: ticket.id,
+                ticketNo: ticket.ticketNo,
+                status: ticket.status,
+                priority: ticket.priority,
+              });
+          } catch (e) {
+            this.logger.warn(
+              `ticket_created emit 失败 ticket=${ticket.id}: ${(e as Error).message}`,
+            );
+          }
+        }
+
         // 返 code + ticketNo + ticketDbId(id) 三段,与 create_ticket MCP 工具预期一致
         return {
           code: ticket.ticketNo,

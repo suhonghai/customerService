@@ -20,7 +20,7 @@ import { MoreMenu } from '@/components/MoreMenu';
 import { ErrorBubble } from '@/components/ErrorBubble';
 import { ChatView } from '@/components/chat/ChatView';
 import type { OperatorReplyPayload } from '@/lib/realtime-client';
-import { onTicketClosed } from '@/lib/realtime-client';
+import { onTicketClosed, onTicketCreated } from '@/lib/realtime-client';
 
 /**
  * 拉 KB / store 元信息(mount 时 1 次)。
@@ -272,6 +272,16 @@ export function RAGChat() {
       }
       // 不管 closedBy 是 user 还是 operator,本会话的 OPEN 工单都已 closed
       setSessionHasOpenTicket(false);
+    });
+    return off;
+  }, []);
+
+  // cs-round-037:订阅 WS ticket_created — 防 RAGChat mount 时 ticket 还没创建
+  // → useEffect 拉 getSessionOpenTicket 返回 null → 永远 false,banner 永不显示
+  // 收到后立即 setSessionHasOpenTicket(true) 显示 banner
+  useEffect(() => {
+    const off = onTicketCreated(() => {
+      setSessionHasOpenTicket(true);
     });
     return off;
   }, []);
