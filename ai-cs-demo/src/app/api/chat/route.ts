@@ -483,24 +483,6 @@ export async function POST(req: Request) {
             { status: 400, headers: { 'Content-Type': 'application/json' } },
           );
         }
-      } else {
-        // 创建 assistant placeholder(空内容,status=2 streaming)
-        // 流式期间节流 PATCH 这个 id,流结束 PATCH status=1 done。
-        // 兜底:如果 placeholder 创建失败,记 -1,后续 PATCH 跳过(不影响流给浏览器)。
-        //
-        // 注意:必须在 handoff 检测之后 —— ack 路径已经 return,不会走到这里。
-        try {
-          const placeholder = await erp.appendMessage(sessionId, {
-            role: 'assistant',
-            content: '',
-            parts: [],
-            status: 2,
-          });
-          assistantMsgId = placeholder.id;
-        } catch (e) {
-          console.warn('[chat] assistant placeholder create failed:', (e as Error).message);
-          assistantMsgId = -1;
-        }
       }
     } catch (e) {
       console.error('[chat] session setup failed:', e);
@@ -774,6 +756,39 @@ ${contextBlock}`;
         lastChunkType = streamChunk.type;
         chunkCount += 1;
 
+        // cs-round-028:首 chunk 抵达时 fire-and-forget INSERT assistant row,
+        //  并入 lastPatchInFlight 串行链,保证后续 flushPatch 等到 INSERT 完成。
+        //  try/catch 必须包住 appendMessage(降级 fallback:失败时 assistantMsgId
+        //  保持 -1,后续 flushPatch 守卫 skip,流继续给浏览器)。
+        if (assistantMsgId <= 0 && accumulatedText.length > 0) {
+          lastPatchInFlight = lastPatchInFlight.then(async () => {
+            try {
+              const row = await erp.appendMessage(sessionId, {
+                role: 'assistant',
+                content: accumulatedText,
+                parts: accumulatedTextPart ? [accumulatedTextPart] : [...accumulatedParts],
+                status: 2,
+                metadata: { streamingStartedAt: new Date().toISOString() },
+              });
+              const newId = row.id;
+              assistantMsgId = newId;
+              // Re-key inFlightGenerations Map (cs-round-026 forwarding 需要正 id):
+              //   原 set 用 -1 占位,INSERT 完成后切到真实 id 让续推命中
+              const oldEntry = inFlightGenerations.get(-1);
+              if (oldEntry) {
+                inFlightGenerations.delete(-1);
+                inFlightGenerations.set(newId, oldEntry);
+              }
+            } catch (e) {
+              console.warn(
+                '[chat] cs-round-028 first-chunk INSERT failed:',
+                (e as Error).message,
+              );
+              // assistantMsgId 保持 -1;后续 flushPatch 守卫会 skip(降级 fallback)
+            }
+          });
+        }
+
         // text-delta:累积 text(text-start/text-end 不累积)
         if (streamChunk.type === 'text-delta' && typeof streamChunk.text === 'string') {
           accumulatedText += streamChunk.text;
@@ -837,6 +852,9 @@ ${contextBlock}`;
           patchTimer = null;
         }
         flushPatch(1);
+        // cs-round-028:等 first-chunk INSERT + 所有 PATCH 落盘后再 cleanup,
+        //  避免 race 导致续推请求 miss Map 但 INSERT 还没完成的窗口
+        await lastPatchInFlight;
         // cs-round-026:cleanup in-flight — 原 streamText 跑完,resume 不再有订阅意义
         inFlightGenerations.delete(assistantMsgId);
       },

@@ -185,7 +185,7 @@ describe('cs-round-022: BFF 跳过空 user 消息落库(防 useAutoResumeStreami
   });
 
   // ── Scenario 3: 不要影响其他 rewrite ──
-  describe('Scenario 3: 不要影响其他 rewrite(回归)', () => {
+  describe('Scenario 3: 不要影响其他 rewrite(回归 + cs-round-028 反转)', () => {
     it('Then appendMessage({role:user,...}) 附近必带 status=1 + BFF 报错路径保持原样', () => {
       const code = readCode('src/app/api/chat/route.ts');
 
@@ -195,11 +195,40 @@ describe('cs-round-022: BFF 跳过空 user 消息落库(防 useAutoResumeStreami
         'appendMessage({role:user,...status:1}) 调用块必须仍存在',
       ).toMatch(/appendMessage\s*\(\s*sessionId\s*,\s*\{[\s\S]{0,200}role:\s*['"]user['"][\s\S]{0,400}status:\s*1/);
 
-      // 助手 placeholder 创建(status=2)块保持原样
+      // ── cs-round-028 反转 ──
+      // 预占位 INSERT 块不再出现在 streamText 启动之前(架构层面消除 race window)
+      // 找到 `const result = streamText(` 同步构造点的索引
+      const streamTextIdx = code.search(/\bstreamText\s*\(\s*\{/);
+      expect(streamTextIdx, 'streamText({...}) 同步构造必须存在').toBeGreaterThanOrEqual(0);
+      const beforeStreamText = code.slice(0, streamTextIdx);
       expect(
-        code,
-        '助手 placeholder appendMessage({role:assistant,status:2}) 必须仍存在',
-      ).toMatch(/appendMessage\s*\(\s*sessionId\s*,\s*\{[\s\S]{0,200}role:\s*['"]assistant['"][\s\S]{0,400}status:\s*2/);
+        beforeStreamText,
+        'cs-round-028 反转:streamText 之前的区域不应再出现 assistant 占位 INSERT 块',
+      ).not.toMatch(
+        /appendMessage\s*\([\s\S]{0,500}role\s*:\s*['"]assistant['"][\s\S]{0,500}content\s*:\s*['"]['"][\s\S]{0,400}status\s*:\s*2/,
+      );
+
+      // first-chunk INSERT 必须出现在 onChunk 回调内
+      const onChunkIdx = code.search(/onChunk\s*:\s*\(/);
+      expect(onChunkIdx, 'onChunk 回调必须存在').toBeGreaterThanOrEqual(0);
+      // 抠出 onChunk body — 用 `=>` 锚定位函数体 `{`,跳过形参 destructure `{ chunk }`
+      const arrowIdx = code.indexOf('=>', onChunkIdx);
+      const openBraceOffset = code.indexOf('{', arrowIdx);
+      let depth = 1;
+      let i = openBraceOffset + 1;
+      while (i < code.length && depth > 0) {
+        const ch = code[i];
+        if (ch === '{') depth++;
+        else if (ch === '}') depth--;
+        i++;
+      }
+      const onChunkBody = code.slice(openBraceOffset, i);
+      expect(
+        onChunkBody,
+        'cs-round-028:onChunk 内必须包含 appendMessage({role:assistant, status:2, ...}) first-chunk INSERT',
+      ).toMatch(
+        /appendMessage\s*\([\s\S]{0,300}role\s*:\s*['"]assistant['"][\s\S]{0,500}status\s*:\s*2/,
+      );
 
       // continueFromMessageId 校验路径(status=2/4)保持原样
       expect(
