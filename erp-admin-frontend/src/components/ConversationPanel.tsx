@@ -67,7 +67,17 @@ export default function ConversationPanel({
       </div>
     );
   }
-  if (loading) return <Spin tip="加载对话..." style={{ display: 'block', padding: 40 }} />;
+  if (loading) {
+    // antd Spin `tip` prop only works in `nest` or `fullscreen` mode; default mode
+    // emits a console warning and silently drops the text. Render the hint as a
+    // sibling div instead so the user actually sees it.
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: '#8C8C8C' }}>
+        <Spin />
+        <div style={{ marginTop: 12 }}>加载对话...</div>
+      </div>
+    );
+  }
 
   return (
     <div>
