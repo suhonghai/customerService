@@ -495,9 +495,14 @@ export class InternalService {
             where: { sessionKey: dto.sessionKey },
             select: { id: true },
           });
+          // cs-round-028:sessionKey 已传但 cs_session 未命中 → 拒绝创建工单,
+          // 避免 silently null 创建孤儿工单(工单 sessionId 为 null 时 ticket.reply()
+          // 桥接会跳过写 cs_message,ERP 详情页对话流永远为空)。
+          // dto.sessionKey 为空仍允许(sessionId=null,用于手工建单场景)。
           if (!sessionRow) {
-            this.logger.warn(
-              `escalation sessionKey=${dto.sessionKey} 未命中 cs_session,将以 sessionId=null 创建工单`,
+            throw new BizException(
+              BizCode.BAD_REQUEST,
+              `sessionKey=${dto.sessionKey} 未命中 cs_session,拒绝创建工单(防 sessionId=null 孤儿)`,
             );
           }
         }
