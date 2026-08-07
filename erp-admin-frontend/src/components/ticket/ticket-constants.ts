@@ -1,9 +1,15 @@
 /**
  * Ticket 业务常量 — 状态 / 优先级 → 颜色 + 文案 映射
  *
- * 与 backend 约定:
- *   status:   0 待处理 / 1 处理中 / 2 待客户 / 3 已解决 / 4 已关闭
- *   priority: 0 低 / 1 中 / 2 高 / 3 紧急
+ * 与 backend 约定(权威来源):
+ *   status:   1 待领取 / 2 处理中 / 3 已解决 / 4 已关闭
+ *             (erp-admin-backend prisma/schema.prisma:214 + ticket.service.ts:38)
+ *   priority: 1 高 / 2 中 / 3 低(prisma/schema.prisma:214 默认值)
+ *             ⚠ cs-round-034:priority 也整体偏移 0 低 / 1 中 / 2 高 / 3 紧急,
+ *               与后端不一致;留 cs-round-035 修(范围控制,本任务只修 status)
+ *
+ * cs-round-034:status 对齐后端 — 之前 status 错位让改状态下拉出现非法选项,
+ * 用户手选 0 会触发后端 400(`status must be one of the following values: 1, 2, 3, 4`)
  */
 export interface TagConf {
   c: string; // antd Tag color
@@ -11,9 +17,8 @@ export interface TagConf {
 }
 
 export const TICKET_STATUS: Record<number, TagConf> = {
-  0: { c: 'default', t: '待处理' },
-  1: { c: 'blue', t: '处理中' },
-  2: { c: 'cyan', t: '待客户' },
+  1: { c: 'blue', t: '待领取' },
+  2: { c: 'cyan', t: '处理中' },
   3: { c: 'green', t: '已解决' },
   4: { c: 'red', t: '已关闭' },
 };

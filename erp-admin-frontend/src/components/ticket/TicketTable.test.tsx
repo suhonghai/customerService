@@ -24,7 +24,7 @@ const rows: TicketListItem[] = [
     id: 1,
     ticketNo: 'T-001',
     title: '登录失败',
-    status: 0,
+    status: 1, // cs-round-034:对齐后端合法值(1=待领取,0 已被删)
     priority: 2,
     assigneeName: 'Alice',
     creatorName: 'Bob',
@@ -139,8 +139,9 @@ describe('TicketTable', () => {
         />,
       ),
     );
-    // 待处理 / 已解决 / 高 / 中 — 至少这些文案都要出现
-    expect(screen.getAllByText('待处理').length).toBeGreaterThan(0);
+    // 待领取 / 已解决 / 高 / 中 — 至少这些文案都要出现
+    // cs-round-034:对齐后端 TICKET_STATUS(1=待领取,0 已删)
+    expect(screen.getAllByText('待领取').length).toBeGreaterThan(0);
     expect(screen.getAllByText('已解决').length).toBeGreaterThan(0);
     expect(screen.getAllByText('高').length).toBeGreaterThan(0);
     expect(screen.getAllByText('中').length).toBeGreaterThan(0);
