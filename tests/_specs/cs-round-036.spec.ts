@@ -240,6 +240,34 @@ describe('cs-round-036: 工单可双向关闭 (用户主动关单)', () => {
     });
   });
 
+  // ── 契约 E2:banner 顺序 — EndConversationButton 必须在 MessageInput 之上 ──
+  describe('E2. Given: ai-cs-demo ChatView.tsx 集成', () => {
+    it('Then: EndConversationButton 必须出现在 MessageInput 之前(顶部 banner 区域,非输入区下方)', () => {
+      const p = resolve(
+        ROOT,
+        'ai-cs-demo/src/components/chat/ChatView.tsx',
+      );
+      expect(existsSync(p)).toBe(true);
+      const text = stripComments(readFileSync(p, 'utf-8'));
+
+      const idxEnd = text.indexOf('<EndConversationButton');
+      const idxInput = text.indexOf('<MessageInput');
+      expect(idxEnd, 'ChatView 必须引用 <EndConversationButton>').toBeGreaterThan(0);
+      expect(idxInput, 'ChatView 必须引用 <MessageInput>').toBeGreaterThan(0);
+      expect(
+        idxEnd < idxInput,
+        'cs-round-036 UX 修正:EndConversationButton 必须在 MessageInput 之前(顶部 banner 区域),'
+          + '不能再放输入框下方(几乎隐身)',
+      ).toBe(true);
+
+      // 还必须有"工单已转人工"文案(状态提示),不只是一个孤立按钮
+      expect(
+        text,
+        'ChatView 必须在 banner 渲染"工单已转人工"状态文案(行业标准)',
+      ).toMatch(/工单已转人工/);
+    });
+  });
+
   // ── 契约 F:ai-cs 端 useRealtime 订阅 ticket_closed ──
   describe('F. Given: ai-cs-demo useRealtime / useAutoResumeStreaming 等', () => {
     it('Then: WS onMessage 必须处理 ticket_closed 事件', () => {

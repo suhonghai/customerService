@@ -246,6 +246,28 @@ export function ChatView(props: ChatViewProps) {
           </div>
         )}
       </div>
+      {/* cs-round-036 UX 修正:工单 OPEN 状态显示顶部 banner(转人工提示 + 结束对话按钮)
+          — 不再放输入框下方(几乎隐身,差点看不到),改用行业标准 banner */}
+      {sessionHasOperator && (
+        <div
+          className="flex items-center justify-between px-4 py-2 text-sm"
+          style={{
+            background: '#FFFBE6',
+            borderTop: '1px solid #FFE58F',
+            color: '#874D00',
+          }}
+          role="status"
+          aria-label="工单已转人工"
+        >
+          <span>
+            🔄 <strong>工单已转人工</strong> · 等待客服回复中…
+          </span>
+          <EndConversationButton
+            sessionKey={activeSessionKey}
+            visible={sessionHasOperator}
+          />
+        </div>
+      )}
       <MessageInput
         value={input}
         onChange={onChangeInput}
@@ -253,13 +275,6 @@ export function ChatView(props: ChatViewProps) {
         isLoading={isLoading}
         onStop={onStop}
       />
-      {/* cs-round-036:工单 OPEN 状态显示"结束对话"按钮,确认弹窗防误触 */}
-      <div className="px-4 pb-3 flex justify-end">
-        <EndConversationButton
-          sessionKey={activeSessionKey}
-          visible={sessionHasOperator}
-        />
-      </div>
     </div>
   );
 }

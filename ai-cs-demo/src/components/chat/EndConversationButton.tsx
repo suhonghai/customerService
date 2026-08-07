@@ -49,11 +49,12 @@ export function EndConversationButton({
       type="button"
       onClick={handleClick}
       disabled={submitting}
-      className="px-3 py-2 text-sm rounded-lg transition-colors"
+      className="px-3 py-1.5 text-sm rounded-md transition-colors font-medium"
       style={{
-        background: 'transparent',
-        color: 'var(--text-tertiary)',
-        border: '1px solid var(--border-subtle)',
+        // cs-round-036 UX 修正:从透明灰边框 → 红色 outline(风险操作,显眼)
+        background: '#FFFFFF',
+        color: '#CF1322',
+        border: '1px solid #FFA39E',
       }}
     >
       {submitting ? '处理中...' : '结束对话'}
