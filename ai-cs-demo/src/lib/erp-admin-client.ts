@@ -265,6 +265,19 @@ export class ErpAdminClient {
   }
 
   /**
+   * cs-round-031:该会话是否已有运营(operator)回复过。
+   *  chat 路由在 handoff ack 前用这个判断:客服已接手(有 metadata.source='operator'
+   *  的 cs_message)→ 后续 user 消息不再合成 "运营正在处理…" ack(避免每条都弹"请稍候")。
+   *  无 operator 回复(首次转人工)→ 仍走原 ack 路径。
+   */
+  async hasOperatorReply(sessionId: number): Promise<boolean> {
+    const messages = await this.getSessionMessages(sessionId);
+    return messages.some(
+      (m) => (m.metadata as { source?: string } | null | undefined)?.source === 'operator',
+    );
+  }
+
+  /**
    * W11 删会话:按 sessionKey(而非 backend id)删除。
    *
    * 后端 DELETE /api/internal/cs/sessions/:id 只接受 backend 主键 id;
