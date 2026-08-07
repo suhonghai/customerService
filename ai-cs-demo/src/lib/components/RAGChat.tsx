@@ -485,6 +485,7 @@ export function RAGChat() {
           escalationMap={escalationMap}
           sessionHasOperator={sessionHasOperator}
           activeId={activeId}
+          activeSessionKey={activeSession?.sessionKey ?? null}
           debugTrace={debugTrace}
           debugRetrieval={debugRetrieval}
           messagesEndRef={messagesEndRef}
