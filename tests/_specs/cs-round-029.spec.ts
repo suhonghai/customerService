@@ -16,6 +16,11 @@
  *        handshake.auth 只传 `sessionKey`,server `realtime.gateway.ts:58-67`
  *        严格先校验 `token === INTERNAL_TOKEN`,缺即 `socket.disconnect(true)`。
  *        ai-cs 端 `realtime-client.ts:55` 已有 token(`cs-round-007` 修过),只剩 ERP 这边。
+ *        **配套**:ai-cs-demo `.env.example` 在 cs-round-029 补了 `NEXT_PUBLIC_INTERNAL_TOKEN` 模板行;
+ *        **onboarding 提醒**:开发者 clone 后 `cp .env.example .env.development` 不够,
+ *        现有开发机的 `.env.development` / `.env.production` 也得补这一行(Next.js 的
+ *        `NEXT_PUBLIC_*` 是 build-time 注入,改完必须重启 dev server 才生效)。
+ *        cs-round-030 即修复该 dev 环境遗漏。
  *
  *     2) **乐观插入静默失效**:`ticket.service.reply()` 返回 `{ticketId, logId, createdAt}`
  *        没有 `messageId`,前端 `send()` 本地 upsert 永远拿不到 id,WS push 到达前的
