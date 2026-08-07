@@ -458,6 +458,15 @@ export class TicketService {
     // Bridge to customer's chat thread:
     // if the ticket is anchored to a chat session, also surface the
     // operator reply as a message in cs_message so ai-cs-demo renders it.
+    // cs-round-029:hoist `created` so the final return can expose messageId
+    // to the ERP frontend for optimistic insert in use-conversation.send().
+    let created: {
+      id: number;
+      content: string;
+      status: number;
+      metadata: any;
+      createdAt: Date;
+    } | null = null;
     if (exist.sessionId) {
       // Resolve operator display name (User.nickname preferred, else username).
       // Used by ai-cs-demo to label the operator bubble (e.g. "T-20260715003 · 王客服 处理中").
@@ -468,7 +477,7 @@ export class TicketService {
       const operatorName =
         operator?.nickname?.trim() || operator?.username || `客服${currentUserId}`;
 
-      const created = await this.prisma.csMessage.create({
+      created = await this.prisma.csMessage.create({
         data: {
           sessionId: exist.sessionId,
           role: 'assistant', // operator-reply bubbles in ai-cs-demo
@@ -515,6 +524,8 @@ export class TicketService {
       ticketId: id,
       logId: log.id,
       createdAt: log.createdAt,
+      // cs-round-029:把新建 cs_message 的 id 带回,前端 send() 拿到后可乐观插入
+      messageId: created?.id ?? null,
     };
   }
 
