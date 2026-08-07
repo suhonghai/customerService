@@ -19,7 +19,12 @@ if (nodefs.existsSync(envFile)) {
 }
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import {
+  ValidationPipe,
+  Logger,
+  ValidationPipeOptions,
+  BadRequestException,
+} from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import cookieParser from 'cookie-parser';
@@ -74,13 +79,43 @@ async function bootstrap() {
   });
 
   // 全局 ValidationPipe
+  // cs-round-032 P2:用 exceptionFactory 拆分多余字段 vs 字段值错的错误,
+  // 避免 class-validator 默认行为把"property xxx should not exist"和
+  // "yyy must be ..." 拼成一坨难读的字符串。
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
-    }),
+      exceptionFactory: (errors) => {
+        const unknownFields: string[] = [];
+        const fieldErrors: string[] = [];
+        for (const e of errors) {
+          // class-validator 的 ValidationError,whitelist 拦截的"多余字段"会带
+          // `constraints.whitelistValidation`(`property foo should not exist`)
+          const c = e.constraints ?? {};
+          if (c.whitelistValidation) {
+            unknownFields.push(e.property);
+          } else {
+            const msgs = Object.values(c).join('; ');
+            fieldErrors.push(`${e.property}: ${msgs}`);
+          }
+        }
+        const parts: string[] = [];
+        if (unknownFields.length) {
+          parts.push(
+            `多余字段(${unknownFields.length}):${unknownFields.join(', ')}`,
+          );
+        }
+        if (fieldErrors.length) {
+          parts.push(`字段值错(${fieldErrors.length}):${fieldErrors.join(' | ')}`);
+        }
+        return new BadRequestException(
+          parts.join('; ') || '参数错误',
+        );
+      },
+    } satisfies ValidationPipeOptions),
   );
 
   // 全局 Filter(顺序很重要:Prisma → Http)

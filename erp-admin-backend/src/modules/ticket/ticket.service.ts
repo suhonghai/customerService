@@ -358,15 +358,22 @@ export class TicketService {
       throw new BizException(BizCode.TICKET_NOT_FOUND, '工单不存在');
     }
     const from = exist.status;
-    const to = dto.newStatus;
+    // cs-round-032:dto.newStatus → dto.status,DTO 字段已重命名
+    const to = dto.status;
     if (from === to) {
       throw new BizException(BizCode.STATE_NOT_ALLOW, '工单已是该状态');
     }
     const allowed = STATE_TRANSITIONS[String(from)] ?? [];
     if (!allowed.includes(to)) {
+      // cs-round-032 P1:错误 message 拼上合法转换列表,前端能直接看到可走的 next status
+      const allowedLabels = allowed.length
+        ? allowed.map((s) => STATUS_LABELS[s] ?? String(s)).join(' / ')
+        : '(终态,无可转换目标)';
       throw new BizException(
         BizCode.STATE_NOT_ALLOW,
-        `状态不允许此操作:${STATUS_LABELS[from] ?? from} → ${STATUS_LABELS[to] ?? to}`,
+        `状态不允许此操作:当前 ${STATUS_LABELS[from] ?? from},`
+          + `合法转换 → ${allowedLabels};`
+          + `你提交的目标 = ${STATUS_LABELS[to] ?? to}`,
       );
     }
 

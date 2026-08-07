@@ -3,15 +3,16 @@ import { IsIn, IsInt, IsOptional, IsString, Length } from 'class-validator';
 /**
  * PUT /api/tickets/:id/status — 改工单状态(状态机)
  *
- * newStatus 取值:
+ * status 取值:
  * - 1 待领取 / 2 处理中 / 3 已解决 / 4 已关闭
  *
  * 合法转换见 TicketService.STATE_TRANSITIONS
  */
 export class UpdateTicketStatusDto {
+  // cs-round-032:字段名 newStatus → status,对齐 REST 惯例 + 前端 use-tickets.ts:81
   @IsInt()
   @IsIn([1, 2, 3, 4])
-  newStatus!: 1 | 2 | 3 | 4;
+  status!: 1 | 2 | 3 | 4;
 
   @IsOptional()
   @IsString()
