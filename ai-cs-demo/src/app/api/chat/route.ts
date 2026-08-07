@@ -357,42 +357,66 @@ export async function POST(req: Request) {
       if (sessionId > 0) {
         try {
           const openTicket = await erp.getSessionOpenTicket(sessionId);
-          if (openTicket && (openTicket as unknown as { ticketNo?: string }).ticketNo) {
-            const ackText = '运营正在处理您的消息,请稍候。';
-            console.log(
-              `[chat] in-human-handoff sessionId=${sessionId} ticketNo=${openTicket.ticketNo} → AI 闭嘴`,
-            );
-            // cs-round-003:handoff ack 落库,刷新页面也能看到
-            // 用真实 messageId(从 appendMessage 返回),前端 useChat 收到的 messageId 就对得上
-            let ackMessageId = `ack-${Date.now()}`;
-            try {
-              const ackRow = await erp.appendMessage(sessionId, {
-                role: 'assistant',
-                content: ackText,
-                status: 1, // 直接落库正常状态(不是 2 streaming)
-                metadata: {
-                  source: 'system-ack',
-                  reason: 'human-handoff',
-                  ticketNo: (openTicket as unknown as { ticketNo: string }).ticketNo,
+          const openTicketNo = (openTicket as unknown as { ticketNo?: string } | null)?.ticketNo;
+          if (openTicket && openTicketNo) {
+            // cs-round-031:客服已接手(session 已有 metadata.source='operator' 的消息)
+            //   → 跳过重复 ack 合成(客户再问不该再弹"还没人接"的提示),
+            //   但 ack 块**前**的 appendMessage(user) 已经落库,ERP user_message WS 照常 emit。
+            //   仅首次转人工(还没有 operator 回复)才合成 ack。
+            const replyFromOperator = await erp.hasOperatorReply(sessionId);
+            if (replyFromOperator) {
+              console.log(
+                `[chat] handoff ack skipped sessionId=${sessionId} replyFromOperator=true ticketNo=${openTicketNo}`,
+              );
+              // 空 assistant 流(仅 finish):让前端 useChat 把 user message 从 submitted → ready,
+              // 不写任何 text-delta,也不 appendMessage(assistant) —— 前端不会多出一条气泡。
+              const noAckStream = createUIMessageStream({
+                originalMessages: messages,
+                execute: async ({ writer }) => {
+                  writer.write({ type: 'finish' });
                 },
               });
-              ackMessageId = `srv-${ackRow.id}`;
-            } catch (e) {
-              // best-effort:appendMessage 失败不应阻断 ack 合成给前端
-              console.warn('[chat] handoff ack 落库失败,fallback 内存 messageId:', (e as Error).message);
+              return createUIMessageStreamResponse({ stream: noAckStream });
+            } else {
+              const ackText = '运营正在处理您的消息,请稍候。';
+              console.log(
+                `[chat] in-human-handoff sessionId=${sessionId} ticketNo=${openTicketNo} replyFromOperator=false → AI 闭嘴`,
+              );
+              // cs-round-003:handoff ack 落库,刷新页面也能看到
+              // 用真实 messageId(从 appendMessage 返回),前端 useChat 收到的 messageId 就对得上
+              let ackMessageId = `ack-${Date.now()}`;
+              try {
+                const ackRow = await erp.appendMessage(sessionId, {
+                  role: 'assistant',
+                  content: ackText,
+                  status: 1, // 直接落库正常状态(不是 2 streaming)
+                  metadata: {
+                    source: 'system-ack',
+                    reason: 'human-handoff',
+                    ticketNo: openTicketNo,
+                  },
+                });
+                ackMessageId = `srv-${ackRow.id}`;
+              } catch (e) {
+                // best-effort:appendMessage 失败不应阻断 ack 合成给前端
+                console.warn(
+                  '[chat] handoff ack 落库失败,fallback 内存 messageId:',
+                  (e as Error).message,
+                );
+              }
+              const ackStream = createUIMessageStream({
+                originalMessages: messages,
+                execute: async ({ writer }) => {
+                  writer.write({ type: 'start', messageId: ackMessageId });
+                  // AI SDK 6.x:text-start/text-delta/text-end 的标识字段是 `id`,不是 `messageId`
+                  writer.write({ type: 'text-start', id: ackMessageId });
+                  writer.write({ type: 'text-delta', id: ackMessageId, delta: ackText });
+                  writer.write({ type: 'text-end', id: ackMessageId });
+                  writer.write({ type: 'finish' });
+                },
+              });
+              return createUIMessageStreamResponse({ stream: ackStream });
             }
-            const ackStream = createUIMessageStream({
-              originalMessages: messages,
-              execute: async ({ writer }) => {
-                writer.write({ type: 'start', messageId: ackMessageId });
-                // AI SDK 6.x:text-start/text-delta/text-end 的标识字段是 `id`,不是 `messageId`
-                writer.write({ type: 'text-start', id: ackMessageId });
-                writer.write({ type: 'text-delta', id: ackMessageId, delta: ackText });
-                writer.write({ type: 'text-end', id: ackMessageId });
-                writer.write({ type: 'finish' });
-              },
-            });
-            return createUIMessageStreamResponse({ stream: ackStream });
           }
         } catch (e) {
           // best-effort:handoff 检测失败不能让 AI 答不上(best-effort 网络探测),fall through 走 LLM
