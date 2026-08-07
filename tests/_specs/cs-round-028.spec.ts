@@ -244,6 +244,46 @@ describe('cs-round-028: ai-cs 转人工必须让 cs_ticket.session_id 落到正�
       ).toBe(true);
     });
 
+    it('Then: loading 分支禁止用 antd Spin.tip(default 模式静默丢弃 + 触发 console warning),必须显式渲染文案', () => {
+      const p = resolve(
+        ROOT,
+        'erp-admin-frontend/src/components/ConversationPanel.tsx',
+      );
+      const text = readFileSync(p, 'utf-8');
+
+      // 抠出 loading 分支(同 spec 其它 loading 分支的抠法)
+      const loadingMatch = text.match(/if\s*\(\s*loading\s*\)/);
+      expect(loadingMatch?.[0] ?? '', '必须存在 if (loading) 分支').toBeTruthy();
+      const branchStart = text.indexOf(loadingMatch![0]);
+      let depth = 0;
+      let started = false;
+      let i = branchStart;
+      while (i < text.length) {
+        const ch = text[i];
+        if (ch === '{') {
+          depth++;
+          started = true;
+        } else if (ch === '}') {
+          if (started && depth === 0) break;
+          depth--;
+        }
+        i++;
+      }
+      const branchBody = text.slice(branchStart, i + 1);
+
+      // 反例:不能写 `<Spin tip="..." />`(antd default 模式 tip 静默丢弃)
+      expect(
+        branchBody,
+        'loading 分支禁止使用 Spin tip prop(default 模式不生效且会 console warning)',
+      ).not.toMatch(/<Spin\b[^>]*\btip\s*=/);
+
+      // 正向契约:必须有可观察的「加载对话」类文本(可在 Spin 兄弟节点、Skeleton、children 等)
+      expect(
+        branchBody,
+        'loading 分支必须有「加载对话」类可观察文本',
+      ).toMatch(/加载对话|Loading|loading\.\.\./);
+    });
+
     it('Then: sessionId=null 分支必须显示「未关联会话」类明确提示,且应给排查线索', () => {
       const p = resolve(
         ROOT,
