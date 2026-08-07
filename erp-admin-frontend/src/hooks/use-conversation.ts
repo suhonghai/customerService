@@ -112,7 +112,10 @@ export function useConversation(ticketId: number, sessionId: number | null): Use
           return;
         }
         sock = io(resolveWsUrl(), {
-          auth: { sessionKey: info.sessionKey },
+          // cs-round-029:WS 握手鉴权 — 必须同时带 sessionKey + token(INTERNAL_TOKEN)。
+          // token 是 server-to-server 的 INTERNAL_TOKEN(env 注入,Vite 用 import.meta.env)。
+          // 后端 realtime.gateway.ts:58-67 严格先验 token 再查 sessionKey,缺/错直接 disconnect(true)。
+          auth: { sessionKey: info.sessionKey, token: import.meta.env.VITE_INTERNAL_TOKEN },
           transports: ['websocket', 'polling'],
           reconnection: true,
         });
@@ -164,14 +167,27 @@ export function useConversation(ticketId: number, sessionId: number | null): Use
       const text = rawText.trim();
       if (!text) return;
       try {
-        const created = await request.post<any, ChatMessage>(
-          `/internal/cs/tickets/${ticketId}/messages`,
-          { content: text },
-        );
-        if (created && created.id) {
-          if (!knownIds.current.has(created.id)) {
-            knownIds.current.add(created.id);
-            setMessages((prev) => [...prev, created]);
+        // cs-round-029:后端 reply() 现返回 { ticketId, logId, createdAt, messageId }
+        // — 没有 id 字段。解 messageId 当作新消息 id,本地合出 ChatMessage 用于乐观插入。
+        const resp = await request.post<
+          any,
+          { id?: number; messageId?: number | null } & Partial<ChatMessage>
+        >(`/internal/cs/tickets/${ticketId}/messages`, { content: text });
+        if (resp) {
+          const id = resp.id ?? resp.messageId ?? null;
+          if (id != null) {
+            const created: ChatMessage = {
+              id,
+              role: resp.role ?? 'assistant',
+              content: resp.content ?? text,
+              status: resp.status ?? 1,
+              metadata: resp.metadata ?? null,
+              createdAt: resp.createdAt ?? new Date().toISOString(),
+            };
+            if (!knownIds.current.has(created.id)) {
+              knownIds.current.add(created.id);
+              setMessages((prev) => [...prev, created]);
+            }
           }
         }
       } catch (e: any) {
