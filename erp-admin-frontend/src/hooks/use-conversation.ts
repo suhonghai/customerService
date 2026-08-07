@@ -47,6 +47,8 @@ export interface UseConversationApi {
   groups: MessageGroup[];
   /** 拉历史失败时抛出的错误;UI 层据此渲染红条 / banner。null 表示未失败。 */
   error: Error | null;
+  // cs-round-036:工单已关闭(WS ticket_closed 事件触发)— 输入框 disable + 提示
+  ticketClosed: boolean;
 }
 
 function resolveWsUrl(): string {
@@ -62,6 +64,8 @@ export function useConversation(ticketId: number, sessionId: number | null): Use
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [wsState, setWsState] = useState<WsState>('connecting');
+  // cs-round-036:工单已关闭(用户主动 / 后台客服关)— 输入框 disable,提示"对话已结束"
+  const [ticketClosed, setTicketClosed] = useState(false);
   const sockRef = useRef<Socket | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const knownIds = useRef<Set<number>>(new Set());
@@ -141,6 +145,10 @@ export function useConversation(ticketId: number, sessionId: number | null): Use
         };
         sock.on('user_message', onPush);
         sock.on('operator_reply', onPush);
+        // cs-round-036:工单关闭事件(用户主动 / 后台客服改 status=4 都会 emit)
+        sock.on('ticket_closed', () => {
+          setTicketClosed(true);
+        });
       })
       .catch(() => {
         setWsState('off');
@@ -214,5 +222,5 @@ export function useConversation(ticketId: number, sessionId: number | null): Use
     return out;
   }, [messages]);
 
-  return { messages, loading, wsState, send, listRef, groups, error: loadError };
+  return { messages, loading, wsState, send, listRef, groups, error: loadError, ticketClosed };
 }

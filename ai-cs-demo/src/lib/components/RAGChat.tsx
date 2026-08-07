@@ -19,6 +19,7 @@ import { MoreMenu } from '@/components/MoreMenu';
 import { ErrorBubble } from '@/components/ErrorBubble';
 import { ChatView } from '@/components/chat/ChatView';
 import type { OperatorReplyPayload } from '@/lib/realtime-client';
+import { onTicketClosed } from '@/lib/realtime-client';
 
 /**
  * 拉 KB / store 元信息(mount 时 1 次)。
@@ -240,6 +241,18 @@ export function RAGChat() {
     if (backendSessionId != null) refetchHistoryRef.current?.(backendSessionId);
   }, [status, backendSessionId]);
   useRealtimeDisconnectOnUnmount();
+
+  // cs-round-036:订阅 WS ticket_closed — 收到后切终止 UI(关闭按钮 + 隐藏输入)
+  // 后端 closeTicketBySession / ticket.service.updateStatus status=4 都会 emit
+  useEffect(() => {
+    const off = onTicketClosed((payload) => {
+      if (payload.closedBy === 'user') {
+        // 用户主动关单:显示"对话已结束"banner,后续由父组件切终止 UI
+        setInput('');
+      }
+    });
+    return off;
+  }, []);
 
   // cs-round-011:自动续推
   useAutoResumeStreaming({

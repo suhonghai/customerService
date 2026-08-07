@@ -225,6 +225,25 @@ export class InternalController {
   }
 
   /**
+   * POST /api/internal/cs/sessions/:sessionKey/close-ticket
+   *   cs-round-036:用户主动"结束对话"关单(ai-cs 端触发)
+   *   内部鉴权:继承 controller-level @UseGuards(InternalGuard)
+   *   归属校验:按 sessionKey 查 csSession,只关该 session 的 OPEN 工单
+   *   body.reason 可选,落 audit log
+   */
+  @Post('sessions/:sessionKey/close-ticket')
+  @ApiOperation({ summary: '用户主动结束对话(关单)' })
+  async closeTicketBySession(
+    @Param('sessionKey') sessionKey: string,
+    @Body() body: { reason?: string } = {},
+  ) {
+    return this.internalService.closeTicketBySession(
+      sessionKey,
+      body.reason,
+    );
+  }
+
+  /**
    * POST /api/internal/cs/tickets/:id/messages
    *   运营在 erp-admin 工单详情输入框 → 内部转写到 ticket.service.reply()
    *   内部仍走原有 cs_message bridge + operator_reply emit

@@ -743,6 +743,106 @@ export class InternalService {
   }
 
   // ============================================================
+  // cs-round-036:用户主动"结束对话"关单(ai-cs 端触发)
+  //   业务场景:用户在 ai-cs 前端点"结束对话"按钮 → 立即关单,不依赖客服
+  //   走旁路:不调 ticket.service.updateStatus(状态机 1→4 / 2→4 会拒),
+  //   直接 prisma 写 status=4 + closedAt + 写 audit log + emit WS ticket_closed
+  //
+  //   归属校验:必须按 sessionKey 查 csSession → 找到该 session 的 OPEN 工单
+  //   → 关闭它。**绝不**接受 ticketId 直接参数(防 INTERNAL_TOKEN 滥用关别人工单)。
+  // ============================================================
+  async closeTicketBySession(sessionKey: string, reason?: string) {
+    // 1. 按 sessionKey 找 csSession(归属校验:sessionKey 不存在 → 报 not found,不会建空 session)
+    const session = await this.prisma.csSession.findUnique({
+      where: { sessionKey },
+      select: { id: true },
+    });
+    if (!session) {
+      throw new NotFoundException(`sessionKey=${sessionKey} 不存在`);
+    }
+
+    // 2. 找该 session 的 OPEN 工单
+    const ticket = await this.prisma.csTicket.findFirst({
+      where: {
+        sessionId: session.id,
+        status: { in: [1, 2, 3] },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        ticketNo: true,
+        status: true,
+        sessionId: true,
+        creatorId: true,
+      },
+    });
+    if (!ticket) {
+      throw new NotFoundException(`sessionKey=${sessionKey} 无 OPEN 工单可关闭`);
+    }
+
+    const now = new Date();
+    const fromStatus = ticket.status;
+
+    // 3. 事务:close ticket + 写 audit log
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.csTicket.update({
+        where: { id: ticket.id },
+        data: {
+          status: 4,
+          closedAt: now,
+          resolvedAt: fromStatus === 2 ? now : null,
+        },
+      });
+      // cs-round-036:写 audit log — Prisma CsTicketLog.operatorId 必填,这里用 ticket.creatorId
+    // (system 占位 admin,见 createEscalation);comment 标"用户主动关单"区分来源
+    await tx.csTicketLog.create({
+      data: {
+        ticketId: ticket.id,
+        action: 'STATUS_CHANGE',
+        fromVal: String(fromStatus),
+        toVal: '4',
+        operatorId: ticket.creatorId,
+        comment: reason
+          ? `用户主动结束对话:${reason}`
+          : '用户主动结束对话',
+      },
+    });
+      return u;
+    });
+
+    // 4. WS emit ticket_closed(同 ticket.service.updateStatus status=4 路径的 payload schema)
+    if (updated.sessionId) {
+      try {
+        this.realtime.server
+          .to(`session:${updated.sessionId}`)
+          .emit('ticket_closed', {
+            ticketId: updated.id,
+            ticketNo: updated.ticketNo,
+            status: 4,
+            closedAt: updated.closedAt?.toISOString() ?? now.toISOString(),
+            closedBy: 'user',
+          });
+      } catch (e) {
+        this.logger.warn(
+          `closeTicketBySession emit 失败 ticket=${updated.id}: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `closeTicketBySession: ticket=${updated.id} (${updated.ticketNo}) ${fromStatus}→4 closedBy=user reason=${reason ?? '(none)'}`,
+    );
+
+    return {
+      ticketId: updated.id,
+      ticketNo: updated.ticketNo,
+      status: 4,
+      closedAt: updated.closedAt,
+      closedBy: 'user' as const,
+    };
+  }
+
+  // ============================================================
   // private
   // 修法(Day 9):用 MAX(ticketNo 后缀) + 1,而非 COUNT + 1
   //   原 count+1 方案在并发下两个事务都看到 count=34,都创 T-20260624035 → P2002

@@ -314,6 +314,35 @@ export class ErpAdminClient {
       body: JSON.stringify(payload),
     });
   }
+
+  /**
+   * cs-round-036:用户主动"结束对话"关单
+   *   内部 POST 到 `/api/internal/cs/sessions/:sessionKey/close-ticket`
+   *   后端做 sessionKey 归属校验,只关该 session 的 OPEN 工单,绝不接受 ticketId
+   *   (防 INTERNAL_TOKEN 滥用关别人工单)
+   *   后端 WS emit ticket_closed 给 session room,ai-cs 端订阅后切终止 UI
+   */
+  async closeTicketBySession(
+    sessionKey: string,
+    reason?: string,
+  ): Promise<{
+    ticketId: number;
+    ticketNo: string;
+    status: 4;
+    closedAt: string;
+    closedBy: 'user';
+  }> {
+    return this.request<{
+      ticketId: number;
+      ticketNo: string;
+      status: 4;
+      closedAt: string;
+      closedBy: 'user';
+    }>(`/internal/cs/sessions/${encodeURIComponent(sessionKey)}/close-ticket`, {
+      method: 'POST',
+      body: JSON.stringify(reason ? { reason } : {}),
+    });
+  }
 }
 
 let _client: ErpAdminClient | null = null;

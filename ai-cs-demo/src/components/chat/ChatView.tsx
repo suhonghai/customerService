@@ -6,6 +6,7 @@ import { ChatBubble } from './ChatBubble';
 import type { ChatBubbleProps } from './ChatBubble';
 import { WelcomeMessage } from './WelcomeMessage';
 import { MessageInput } from './MessageInput';
+import { EndConversationButton } from './EndConversationButton';
 import { DecisionTrace } from '@/components/DecisionTrace';
 import { ErrorBubble } from '@/components/ErrorBubble';
 import { RatingButtons } from '@/components/RatingButtons';
@@ -252,6 +253,13 @@ export function ChatView(props: ChatViewProps) {
         isLoading={isLoading}
         onStop={onStop}
       />
+      {/* cs-round-036:工单 OPEN 状态显示"结束对话"按钮,确认弹窗防误触 */}
+      <div className="px-4 pb-3 flex justify-end">
+        <EndConversationButton
+          sessionKey={activeSessionKey}
+          visible={sessionHasOperator}
+        />
+      </div>
     </div>
   );
 }

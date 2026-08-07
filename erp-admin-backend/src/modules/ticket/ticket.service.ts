@@ -419,6 +419,19 @@ export class TicketService {
       return u;
     });
 
+    // cs-round-036:status=4 (close) 时 WS emit ticket_closed,让 ai-cs + erp 前台实时切终止 UI
+    if (to === 4 && updated.sessionId) {
+      this.realtime.server
+        .to(`session:${updated.sessionId}`)
+        .emit('ticket_closed', {
+          ticketId: updated.id,
+          ticketNo: updated.ticketNo,
+          status: 4,
+          closedAt: updated.closedAt?.toISOString() ?? new Date().toISOString(),
+          closedBy: 'operator',
+        });
+    }
+
     void this.audit.create({
       userId: currentUserId,
       module: 'ticket',

@@ -22,6 +22,16 @@ let socket: Socket | null = null;
 let subscribedKey: string | null = null;
 const handlers = new Set<(p: OperatorReplyPayload) => void>();
 
+// cs-round-036:工单关闭事件(ai-cs + erp 前台订阅,关闭后切终止 UI / 输入框 disable)
+export interface TicketClosedPayload {
+  ticketId: number;
+  ticketNo: string;
+  status: 4;
+  closedAt: string;
+  closedBy: 'user' | 'operator';
+}
+const ticketClosedHandlers = new Set<(p: TicketClosedPayload) => void>();
+
 /**
  * Connect WS server, auth with sessionKey. Idempotent — re-using the same
  * sessionKey returns the existing socket. Reconnect is automatic.
@@ -62,6 +72,16 @@ export function connectRealtime(sessionKey: string): Socket {
       }
     });
   });
+  // cs-round-036:工单关闭事件分发
+  socket.on('ticket_closed', (payload: TicketClosedPayload) => {
+    ticketClosedHandlers.forEach((h) => {
+      try {
+        h(payload);
+      } catch (e) {
+        console.error('[realtime] ticket_closed handler', e);
+      }
+    });
+  });
   return socket;
 }
 
@@ -69,6 +89,16 @@ export function onOperatorReply(handler: (p: OperatorReplyPayload) => void): () 
   handlers.add(handler);
   return () => {
     handlers.delete(handler);
+  };
+}
+
+// cs-round-036:订阅 ticket_closed 事件,收到后切换到终止 UI
+export function onTicketClosed(
+  handler: (p: TicketClosedPayload) => void,
+): () => void {
+  ticketClosedHandlers.add(handler);
+  return () => {
+    ticketClosedHandlers.delete(handler);
   };
 }
 

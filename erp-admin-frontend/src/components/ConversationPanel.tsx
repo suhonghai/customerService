@@ -34,7 +34,7 @@ export default function ConversationPanel({
 }: ConversationPanelProps) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
-  const { messages, loading, wsState, send, listRef, groups, error } = useConversation(
+  const { messages, loading, wsState, send, listRef, groups, error, ticketClosed } = useConversation(
     ticketId,
     sessionId,
   );
@@ -118,6 +118,19 @@ export default function ConversationPanel({
             <TicketStatusTag state={wsState} />
           </div>
         </div>
+      {ticketClosed && (
+        <div
+          style={{
+            background: '#FFF7E6',
+            border: '1px solid #FFD591',
+            color: '#D46B08',
+            padding: '6px 14px',
+            fontSize: 13,
+          }}
+        >
+          对话已结束(用户已主动结束 或 客服已改状态为已关闭)
+        </div>
+      )}
       <div
         ref={listRef}
         style={{
@@ -157,10 +170,14 @@ export default function ConversationPanel({
               onSend();
             }
           }}
-          placeholder="回复客户 — Enter 发送,Shift+Enter 换行"
-          disabled={sending}
+          placeholder={
+            ticketClosed
+              ? '工单已关闭,无法继续回复'
+              : '回复客户 — Enter 发送,Shift+Enter 换行'
+          }
+          disabled={sending || ticketClosed}
         />
-        <Button type="primary" loading={sending} onClick={onSend}>
+        <Button type="primary" loading={sending} onClick={onSend} disabled={ticketClosed}>
           发送
         </Button>
       </div>
