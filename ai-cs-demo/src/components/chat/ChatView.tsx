@@ -30,6 +30,10 @@ export interface ChatViewProps {
     { escalationId: string; estimatedWaitMinutes: number; urgency: string }
   >;
   sessionHasOperator: boolean;
+  // cs-round-036 UX 修正2:工单 OPEN 状态(替代 sessionHasOperator 的"messages 含 operator"判断)
+  //   true → 有 OPEN 工单,显示"工单已转人工"banner + 结束按钮
+  //   false → 无 OPEN 工单(banner + 按钮隐藏;但输入框 + EscalateButton 保留)
+  sessionHasOpenTicket: boolean;
   activeId: string | null;
   /**
    * cs-round-028:字符串 sessionKey(per browser,nanoid 派生,格式如
@@ -95,6 +99,7 @@ export function ChatView(props: ChatViewProps) {
     abortedIds,
     escalationMap,
     sessionHasOperator,
+    sessionHasOpenTicket,
     activeId,
     activeSessionKey,
     debugTrace,
@@ -203,7 +208,7 @@ export function ChatView(props: ChatViewProps) {
                   escalation={
                     isAssistant &&
                     text &&
-                    !sessionHasOperator &&
+                    !sessionHasOpenTicket &&
                     metadata?.source !== 'operator' ? (
                       escalationMap[m.id] ? (
                         <EscalateBubble
@@ -247,8 +252,9 @@ export function ChatView(props: ChatViewProps) {
         )}
       </div>
       {/* cs-round-036 UX 修正:工单 OPEN 状态显示顶部 banner(转人工提示 + 结束对话按钮)
-          — 不再放输入框下方(几乎隐身,差点看不到),改用行业标准 banner */}
-      {sessionHasOperator && (
+          — 不再放输入框下方(几乎隐身,差点看不到),改用行业标准 banner。
+          修正2:关单后 banner 立即隐藏(但输入框 + EscalateButton 保留,用户可继续对话) */}
+      {sessionHasOpenTicket && (
         <div
           className="flex items-center justify-between px-4 py-2 text-sm"
           style={{
@@ -264,7 +270,7 @@ export function ChatView(props: ChatViewProps) {
           </span>
           <EndConversationButton
             sessionKey={activeSessionKey}
-            visible={sessionHasOperator}
+            visible={sessionHasOpenTicket}
           />
         </div>
       )}

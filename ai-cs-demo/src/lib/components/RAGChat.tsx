@@ -9,6 +9,7 @@ import { useRealtime, useRealtimeDisconnectOnUnmount } from '@/hooks/use-realtim
 import { useAutoResumeStreaming } from '@/hooks/use-auto-resume-streaming';
 import { getVisitorId } from '@/lib/visitor';
 import { getClientUserId, getClientCustomerId, logoutRequest } from '@/lib/auth';
+import { getErpAdminClient } from '@/lib/erp-admin-client';
 import { scanStreamError } from '@/lib/stream-error-scanner';
 import { refetchSessionHistory } from '@/lib/refetch-history';
 import { withCache } from '@/lib/with-cache';
@@ -100,13 +101,33 @@ export function RAGChat() {
   const { abortedIds, setAbortedIds, escalationMap, setEscalationMap, backendSessionId } =
     useChatState({ activeId, setMessages, setHistoryLoading });
 
-  const sessionHasOperator = useMemo(
-    () =>
-      messages.some(
-        (m) => (m as unknown as { metadata?: { source?: string } }).metadata?.source === 'operator',
-      ),
-    [messages],
-  );
+  // cs-round-036 UX 修正:判断"工单 OPEN 状态"用 ticket 真实状态,不再用 messages.operator 推断
+  // (旧判断 bug:工单 OPEN 但客服从未回复时 banner 不显示;关单后 banner 仍显示)
+  const [sessionHasOpenTicket, setSessionHasOpenTicket] = useState(false);
+
+  // backendSessionId 变化时 → 拉 ticket 状态(同时切会话时重新判断)
+  useEffect(() => {
+    let cancelled = false;
+    if (backendSessionId == null) {
+      setSessionHasOpenTicket(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void getErpAdminClient()
+      .getSessionOpenTicket(backendSessionId)
+      .then((t) => {
+        if (cancelled) return;
+        // t === null → 该 session 没有 OPEN 工单;t !== null → status ∈ {1,2,3} 之一 → OPEN
+        setSessionHasOpenTicket(t !== null);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionHasOpenTicket(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backendSessionId]);
   const [streamError, setStreamError] = useState<UserFacingError | null>(null);
   const [deleteError, setDeleteError] = useState<UserFacingError | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -242,14 +263,15 @@ export function RAGChat() {
   }, [status, backendSessionId]);
   useRealtimeDisconnectOnUnmount();
 
-  // cs-round-036:订阅 WS ticket_closed — 收到后切终止 UI(关闭按钮 + 隐藏输入)
-  // 后端 closeTicketBySession / ticket.service.updateStatus status=4 都会 emit
+  // cs-round-036:订阅 WS ticket_closed — 收到后立即同步 sessionHasOpenTicket=false
+  // (banner + 结束对话按钮消失,但输入框保留 — 用户关单后还能继续跟 AI 对话 / 重新召唤人工)
   useEffect(() => {
     const off = onTicketClosed((payload) => {
       if (payload.closedBy === 'user') {
-        // 用户主动关单:显示"对话已结束"banner,后续由父组件切终止 UI
         setInput('');
       }
+      // 不管 closedBy 是 user 还是 operator,本会话的 OPEN 工单都已 closed
+      setSessionHasOpenTicket(false);
     });
     return off;
   }, []);
@@ -496,7 +518,7 @@ export function RAGChat() {
           streamError={streamError}
           abortedIds={abortedIds}
           escalationMap={escalationMap}
-          sessionHasOperator={sessionHasOperator}
+          sessionHasOpenTicket={sessionHasOpenTicket}
           activeId={activeId}
           activeSessionKey={activeSession?.sessionKey ?? null}
           debugTrace={debugTrace}

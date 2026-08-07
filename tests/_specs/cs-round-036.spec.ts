@@ -296,6 +296,60 @@ describe('cs-round-036: 工单可双向关闭 (用户主动关单)', () => {
     });
   });
 
+  // ── 契约 H:cs-round-036 UX 修正2 — ticket 状态判断替代 messages.operator 推断 ──
+  describe('H. Given: ai-cs-demo RAGChat.tsx + ChatView.tsx', () => {
+    it('Then: 必须基于 ticket 状态判断"工单 OPEN",不再用 messages.operator 推断', () => {
+      const ragchat = resolve(
+        ROOT,
+        'ai-cs-demo/src/lib/components/RAGChat.tsx',
+      );
+      const chatView = resolve(
+        ROOT,
+        'ai-cs-demo/src/components/chat/ChatView.tsx',
+      );
+      expect(existsSync(ragchat)).toBe(true);
+      expect(existsSync(chatView)).toBe(true);
+      const ragText = stripComments(readFileSync(ragchat, 'utf-8'));
+      const viewText = stripComments(readFileSync(chatView, 'utf-8'));
+
+      // RAGChat 必须有 sessionHasOpenTicket state(替代旧的 sessionHasOperator)
+      expect(
+        ragText,
+        'RAGChat 必须有 sessionHasOpenTicket state(基于 ticket 状态,不再基于 messages.operator 推断)',
+      ).toMatch(/sessionHasOpenTicket/);
+
+      // RAGChat 必须调 getSessionOpenTicket 拉真实状态
+      expect(
+        ragText,
+        'RAGChat 必须调 getSessionOpenTicket(backendSessionId) 拉 ticket 真实状态',
+      ).toMatch(/getSessionOpenTicket\s*\(/);
+
+      // onTicketClosed handler 必须 setSessionHasOpenTicket(false)— 关单后立即同步
+      expect(
+        ragText,
+        'onTicketClosed handler 必须 setSessionHasOpenTicket(false)(关单后立即隐藏 banner/按钮)',
+      ).toMatch(/onTicketClosed[\s\S]*?setSessionHasOpenTicket\s*\(\s*false/);
+
+      // ChatView 必须用 sessionHasOpenTicket 控制 banner/按钮可见性
+      expect(
+        viewText,
+        'ChatView 必须用 sessionHasOpenTicket 控制 banner + 结束按钮(不再用 sessionHasOperator)',
+      ).toMatch(/sessionHasOpenTicket/);
+
+      // banner 块必须以 sessionHasOpenTicket 作为渲染条件(关单后立即隐藏)
+      expect(
+        viewText,
+        'ChatView banner 必须用 sessionHasOpenTicket 作为渲染条件(关单后 false)',
+      ).toMatch(/\{sessionHasOpenTicket\s*&&\s*\(/);
+
+      // EndConversationButton visible 必须传 sessionHasOpenTicket
+      expect(
+        viewText,
+        'EndConversationButton visible 必须传 sessionHasOpenTicket(关单后 false)',
+      ).toMatch(/visible=\{sessionHasOpenTicket\}/);
+    });
+  });
+
   // ── 契约 G:erp-admin ConversationPanel / use-conversation 订阅 + disable ──
   describe('G. Given: erp-admin-frontend use-conversation.ts + ConversationPanel.tsx', () => {
     it('Then: use-conversation 必须订阅 ticket_closed;ConversationPanel 输入框条件 disable', () => {
