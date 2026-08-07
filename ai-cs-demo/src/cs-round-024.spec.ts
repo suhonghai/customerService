@@ -41,9 +41,12 @@
  *
  *   Scenario 2: 行为契约 — bg drain 永不 throw
  *     Given uiStream.tee() 拆出的 bgStream 后台 drain 异步函数
- *     Then  该 async 函数体内不应出现 `throw`(grep 反向断言)
+ *     Then  drain 函数体内不应出现 `throw`(grep 反向断言)
  *     And   必须用 try/catch 把 reader.read() 包起来(grep 验证 catch 块存在)
  *     And   必须调用 reader.releaseLock()(grep 验证释放锁)
+ *     注:cs-round-026 把内联 IIFE 重构为命名函数 `drainForever`,本 spec 接受两种
+ *         形态 — `void (async () => { ... })()`(csr024 原版)或 `void drainForever(stream)`
+ *         后跟命名函数定义(cs-csr026 重构版)。
  *
  *   Scenario 3: W11 invariant 回归
  *     Given chat/route.ts 里 streamText 调用和 MCP client 调用
@@ -93,16 +96,17 @@ function readRaw(relPath: string): string {
 describe('cs-round-024: writer.merge + tee 隔离 cancel 传播(客户端刷新不再触发 AI_NoOutputGeneratedError)', () => {
   // ── Scenario 1: 源码契约 — tee + bg drain 存在 ──
   describe('Scenario 1: uiStream.tee() + 后台 drain 形态存在', () => {
-    it('Then uiStream 附近必须有 tee() / bgStream / 后台 drain / cs-round-024 锚点,且 writer.merge 必须用 clientStream', () => {
+    it('Then uiStream 附近必须有 tee() / 后台 drain / cs-round-024 锚点,且 writer.merge 必须用 clientStream', () => {
       const raw = readRaw('src/app/api/chat/route.ts');
 
-      // 找到 uiStream.tee() 调用点(用 raw,因为注释里也有这个名字提及)
-      const teeIdx = raw.search(/uiStream\.tee\s*\(\s*\)/);
-      expect(teeIdx, 'uiStream.tee() 调用必须存在').toBeGreaterThanOrEqual(0);
+      // 找到 uiStream.tee() **实际调用点**(不是注释里的提及)— 用最后一个匹配
+      const teeMatches = [...raw.matchAll(/uiStream\.tee\s*\(\s*\)/g)];
+      expect(teeMatches.length, 'uiStream.tee() 调用必须存在').toBeGreaterThanOrEqual(1);
+      const teeIdx = teeMatches[teeMatches.length - 1].index ?? 0;
 
-      // 抠出 tee 调用点 ±3500 字符(tee + bg drain + writer.merge;comments 占大头)
-      const ctxStart = Math.max(0, teeIdx - 200);
-      const ctxEnd = Math.min(raw.length, teeIdx + 3500);
+      // 抠出 tee 调用点 ±1500/4500 字符(tee + bg drain + writer.merge;cs-round-026 重写注释后膨胀)
+      const ctxStart = Math.max(0, teeIdx - 1500);
+      const ctxEnd = Math.min(raw.length, teeIdx + 4500);
       const uiStreamCtx = raw.slice(ctxStart, ctxEnd);
 
       // tee() 必须存在
@@ -111,23 +115,23 @@ describe('cs-round-024: writer.merge + tee 隔离 cancel 传播(客户端刷新�
         'uiStream 之后必须出现 uiStream.tee() 调用',
       ).toMatch(/uiStream\.tee\s*\(\s*\)/);
 
-      // bgStream 必须出现
+      // 后台 drain 形态(两种任一):
+      //   A. 内联 IIFE:`void (async () => {`
+      //   B. 命名函数:`void drainForever(`(cs-round-026 重构)
+      // 注:cs-round-026 把 bgStream → broadcastStream 然后再 tee 出 drainBranch/mapBranch,
+      // 所以原本的 bgStream 字面量已不存在,但 `drainForever` 或 `void (async` 任一形态仍必现
+      const drainShapeA = /void\s*\(\s*async\s*\(\s*\)\s*=>\s*\{/;
+      const drainShapeB = /void\s+drainForever\s*\(/;
       expect(
-        uiStreamCtx,
-        'uiStream 之后必须出现 bgStream 变量声明',
-      ).toMatch(/\bbgStream\b/);
+        uiStreamCtx.match(drainShapeA) || uiStreamCtx.match(drainShapeB),
+        'uiStream 之后必须出现后台 drain 形态 — 内联 IIFE 或 void drainForever(...)',
+      ).toBeTruthy();
 
-      // 后台 drain 形态:`void (async () => {`
+      // cs-round-024 锚点(允许 cs-round-024 或 cs-round-026,csr026 重写了注释块)
       expect(
         uiStreamCtx,
-        'uiStream 之后必须出现 `void (async () => {` 启后台 drain',
-      ).toMatch(/void\s*\(\s*async\s*\(\s*\)\s*=>\s*\{/);
-
-      // cs-round-024 锚点
-      expect(
-        uiStreamCtx,
-        'uiStream 区域内必须包含 cs-round-024 字样(commit 锚点)',
-      ).toMatch(/cs-round-024/);
+        'uiStream 区域内必须包含 cs-round-024 或 cs-round-026 字样(commit 锚点)',
+      ).toMatch(/cs-round-(?:024|026)/);
 
       // writer.merge 必须用 clientStream 而非 uiStream
       // 反向断言:strip 注释后的 code 不应再出现 `writer.merge(uiStream)`
@@ -148,26 +152,50 @@ describe('cs-round-024: writer.merge + tee 隔离 cancel 传播(客户端刷新�
 
   // ── Scenario 2: 行为契约 — bg drain 永不 throw ──
   describe('Scenario 2: 后台 drain 永不 throw 且 release lock', () => {
-    it('Then 后台 drain async 函数体内不 throw,必包 try/catch,必 releaseLock()', () => {
+    it('Then 后台 drain 函数体内不 throw,必包 try/catch,必 releaseLock()', () => {
       const raw = readRaw('src/app/api/chat/route.ts');
 
-      // 找到 `void (async () => {` 那一段(后台 drain 起点)
-      const drainStart = raw.search(/void\s*\(\s*async\s*\(\s*\)\s*=>\s*\{/);
-      expect(drainStart, '后台 drain `void (async () => {` 必须存在').toBeGreaterThanOrEqual(0);
+      // cs-round-026:接受两种 drain 形态 ——
+      //   A. 内联 IIFE:`void (async () => { ... })()`(csr024 原版)
+      //   B. 命名函数调用:`void drainForever(stream)` 后跟 `async function drainForever` 定义
+      // 我们抽两种形态任一即可(用 OR 测试)
+      const inlineIIFE = raw.match(/void\s*\(\s*async\s*\(\s*\)\s*=>\s*\{[\s\S]*?\}\s*\)\s*\(\s*\)/);
+      const namedFnCall = raw.match(/void\s+drainForever\s*\(\s*\w+\s*\)/);
+      expect(
+        inlineIIFE || namedFnCall,
+        '后台 drain 必须存在 — 内联 IIFE 或命名函数调用 void drainForever(stream)',
+      ).toBeTruthy();
 
-      // 找到 drain 闭合 `})();` — 这是 void (async () => {...})() 的结尾
-      // 用 brace-count 抠出 IIFE 函数体范围:从 drainStart 的 `{` 到对应 `}`
-      const openBraceOffset = raw.indexOf('{', drainStart);
-      let depth = 1;
-      let i = openBraceOffset + 1;
-      while (i < raw.length && depth > 0) {
-        const ch = raw[i];
-        if (ch === '{') depth++;
-        else if (ch === '}') depth--;
-        i++;
+      // 抠出 drain 函数体范围 —— 两种形态分别处理
+      let drainCtx = '';
+      if (inlineIIFE) {
+        // 从内联 IIFE 的 `{` 开始 brace-count
+        const startIdx = inlineIIFE.index ?? 0;
+        const openBraceOffset = raw.indexOf('{', startIdx);
+        let depth = 1;
+        let i = openBraceOffset + 1;
+        while (i < raw.length && depth > 0) {
+          const ch = raw[i];
+          if (ch === '{') depth++;
+          else if (ch === '}') depth--;
+          i++;
+        }
+        drainCtx = raw.slice(openBraceOffset, i);
+      } else if (namedFnCall) {
+        // 找 `async function drainForever` 或 `function drainForever` 定义
+        const fnStart = raw.search(/(?:async\s+)?function\s+drainForever\s*\(/);
+        expect(fnStart, '命名 drain 函数定义必须存在').toBeGreaterThanOrEqual(0);
+        const openBraceOffset = raw.indexOf('{', fnStart);
+        let depth = 1;
+        let i = openBraceOffset + 1;
+        while (i < raw.length && depth > 0) {
+          const ch = raw[i];
+          if (ch === '{') depth++;
+          else if (ch === '}') depth--;
+          i++;
+        }
+        drainCtx = raw.slice(openBraceOffset, i);
       }
-      // i 现在指向配对 `}` 之后;再加 1 是 `)` 再 1 是 `;`,我们只要到 `}` 为止
-      const drainCtx = raw.slice(drainStart, i);
 
       // 必含 catch(包 reader.read)
       expect(
@@ -188,15 +216,11 @@ describe('cs-round-024: writer.merge + tee 隔离 cancel 传播(客户端刷新�
       ).toMatch(/reader\.releaseLock\s*\(\s*\)/);
 
       // 反向断言:drain 函数体内不应出现真实 throw 语句
-      // 注释里有「raise」「raise」等英文/中文都可能;只看代码 throw 的实际语句形式
-      // — `throw ` 后必跟表达式:`throw new X` / `throw err` / `throw X;`
-      // — 排除注释:仅取代码 token,跳过 // 行尾 / 块注释
       const codeLines = drainCtx.split('\n').filter((line) => {
         const t = line.trimStart();
         return !t.startsWith('//');
       });
       const codeOnly = codeLines.join('\n');
-      // 真实 throw 语句:`throw ` 后接标识符 / `new` / `{` / 引号
       const throwMatches = codeOnly.match(/throw\s+(new\s+|[A-Za-z_$]|[\{\"'])/g) ?? [];
       expect(
         throwMatches.length,

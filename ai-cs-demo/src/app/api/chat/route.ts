@@ -167,6 +167,69 @@ export function isEffectivelyEmptyUserMessage(queryText: string, parts: unknown[
 }
 
 /**
+ * cs-round-026:模块级 in-flight 生成表 — key=assistantMsgId,value=可被 resume 转发
+ * 的 uiStream + finished promise。同一 assistantMsgId 只允许一个 streamText 在跑。
+ *
+ * 为什么需要模块级 Map(而不是局部 closure):
+ *   - POST /api/chat 是无状态路由 handler,每次调用都新建闭包
+ *   - 但 /api/chat 跨请求必须共享 state(原请求和续推请求是同一进程的不同 invocation)
+ *   - Next.js dev/prod runtime 是单进程长驻,模块级 Map 在进程生命周期内有效
+ *
+ * 何时 register / unregister:
+ *   - register:原 /api/chat 在 execute callback 里 uiStream.tee() 之后立即 set,
+ *     此时 uiStream 已 tee 出 clientStream,resume 可从 map 的 stream 字段 tee 出
+ *     自己的 client 分支
+ *   - unregister:onFinish / onError / onAbort 三个 callback 里 delete(防内存泄漏)
+ *   - stale entry 兜底:process 级 setInterval 每 60s 扫一次,finished 已 settle 且
+ *     超过 5min 的 entry 删除(防止 onError 漏触发的极端 case)
+ *
+ * Out of scope:
+ *   - 跨进程 share(Next.js 单进程跑,不需要 Redis);如果以后上 multi-instance 需要换 Redis
+ *   - abort 原 streamText:续推请求是"订阅"而不是"抢占",不动原 streamText 生命周期
+ */
+type InFlightEntry = {
+  stream: ReadableStream;
+  finished: Promise<void>;
+  sessionId: number;
+  startedAt: number;
+};
+const inFlightGenerations = new Map<number, InFlightEntry>();
+
+/** stale entry 兜底清理 — 每 60s 扫一次,删除 finished > 5min 的 entry。Module-load 时挂一次。 */
+const STALE_INFLIGHT_MS = 5 * 60 * 1000;
+const STALE_INFLIGHT_SWEEP_MS = 60 * 1000;
+const staleInFlightSweep = setInterval(() => {
+  const now = Date.now();
+  for (const [msgId, entry] of inFlightGenerations.entries()) {
+    if (now - entry.startedAt > STALE_INFLIGHT_MS) {
+      inFlightGenerations.delete(msgId);
+      console.warn(`[chat] cs-round-026 stale in-flight entry swept assistantMsgId=${msgId}`);
+    }
+  }
+}, STALE_INFLIGHT_SWEEP_MS);
+// Node.js process 上 setInterval 默认保持 event loop 活跃;明确 unref() 以便 graceful shutdown
+if (typeof staleInFlightSweep.unref === 'function') staleInFlightSweep.unref();
+
+/**
+ * cs-round-026:fire-and-forget drain — 只为续命上游 stream(不抛、不消费)。
+ * Web Streams 规范:tee 拆出的两路,任一路被持续 read 才能保证 source 不被
+ * "无消费者 → 反压 → 上游 streamText 提前终止"。
+ */
+async function drainForever(stream: ReadableStream): Promise<void> {
+  const reader = stream.getReader();
+  try {
+    while (true) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
+  } catch {
+    // drain only — never throw
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
  * W9-10 Day 6 (F3b):客服对话路由 —— RAG + MCP 4 工具 + 服务端持久化
  *
  * 设计(沿用 W5-6 的 Agent 模式 + 客服场景改造):
@@ -375,6 +438,41 @@ export async function POST(req: Request) {
           console.log(
             `[chat] continueFromMessageId=${assistantMsgId} status=${existing.status} contentLen=${(existing.content || '').length} → 续推`,
           );
+
+          // cs-round-026:原 streamText 仍在跑(同 assistantMsgId in-flight 命中)
+          // → 转发 uiStream 给当前 client,**不**重新调 streamText / withStreamRetry
+          // / result.text / flushPatch。避免与原请求抢同一 DB row + 双 LLM 费用 +
+          // status 字段抖动。
+          const inFlight = inFlightGenerations.get(assistantMsgId);
+          if (inFlight) {
+            console.log(
+              `[chat] cs-round-026 in-flight hit assistantMsgId=${assistantMsgId} → forwarding uiStream(跳过 buildStream)`,
+            );
+            return createUIMessageStreamResponse({
+              stream: createUIMessageStream({
+                originalMessages: messages,
+                execute: async ({ writer }) => {
+                  try {
+                    // tee inFlight.stream → resumeClientStream + resumeBgStream
+                    // 后续 csr011 兼容:每个 resume 都要 drain bg 防 backpressure
+                    const [resumeClientStream, resumeBgStream] = inFlight.stream.tee();
+                    void drainForever(resumeBgStream);
+                    writer.merge(resumeClientStream);
+                    // 等原 streamText 跑完(success / error 都 resolve)
+                    // 之后 SSE 关闭,client 看到 finish chunk 或 error chunk
+                    await inFlight.finished;
+                  } catch (e) {
+                    console.warn(
+                      '[chat] cs-round-026 resume forwarding failed:',
+                      (e as Error).message,
+                    );
+                  }
+                },
+                // 转发错误时,只序列化原始 err 给 client,resume 不写 DB
+                onError: (err) => serializeError(err),
+              }),
+            });
+          }
         } catch (e) {
           console.error(
             '[chat] continueFromMessageId lookup failed:',
@@ -739,6 +837,8 @@ ${contextBlock}`;
           patchTimer = null;
         }
         flushPatch(1);
+        // cs-round-026:cleanup in-flight — 原 streamText 跑完,resume 不再有订阅意义
+        inFlightGenerations.delete(assistantMsgId);
       },
       onAbort: async () => {
         // 用户中断:同上,但 status=3 interrupted
@@ -748,6 +848,8 @@ ${contextBlock}`;
         }
         accumulatedMetadata.abortedAt = new Date().toISOString();
         flushPatch(3);
+        // cs-round-026:cleanup in-flight — abort 后 resume 转发也无意义(原 streamText 已停)
+        inFlightGenerations.delete(assistantMsgId);
         await lastPatchInFlight;
       },
     });
@@ -888,22 +990,39 @@ ${contextBlock}`;
           //   bug 链路的另一个入口 — MCP 子进程被 req.signal abort 杀掉)。cs-round-024
           //   堵 outer pipe chain 这一支。两支都堵了,client disconnect 才能真正不再
           //   误报 AI_NoOutputGeneratedError。
-          const [clientStream, bgStream] = uiStream.tee();
-          void (async () => {
-            const reader = bgStream.getReader();
-            try {
-              while (true) {
-                const { done } = await reader.read();
-                if (done) break;
-              }
-            } catch {
-              // 后台 drain 只为续命 source,不需 raise — AI SDK onError 会单独
-              // PATCH status=4(且仅在 streamText 真·业务错时触发,client disconnect
-              // 已通过 cs-round-023/024 不再传播到这里)。
-            } finally {
-              reader.releaseLock();
-            }
-          })();
+          // cs-round-026:uiStream 三路 tee ——
+          //   clientStream     ──→ writer.merge()(原 client SSE,可被 cancel)
+          //   drainBranch      ──→ 后台 fire-and-forget drain(永不 cancel,续命 source)
+          //   mapBranch        ──→ 存 inFlightGenerations,供 resume 请求 tee
+          //                          转发(同一 assistantMsgId 复用,不重调 LLM)
+          //
+          // 为什么需要三路:resume 请求拿到 inFlight.stream 后会再 tee 一次
+          // (→ resumeClientStream + resumeBgStream),所以 inFlight.stream 必须
+          // 是**未锁定**的分支;drainBranch 走专门的 drain,mapBranch 才能保持未锁定。
+          // (Web Streams spec:tee() 拆出的两路,任一路被 getReader() 锁定,另一路
+          // 才能再被 tee。若 mapBranch 与 drainBranch 共用,resume 来时 drain 已在
+          // 读 mapBranch,tee 会抛 TypeError。)
+          const [clientStream, broadcastStream] = uiStream.tee();
+          const [drainBranch, mapBranch] = broadcastStream.tee();
+          void drainForever(drainBranch);
+          // cs-round-026:register in-flight — resume 请求进来时,从 map.tee 出
+          // resumeClientStream 转发原 streamText 的后续 chunk。finished 用
+          // result.text 兜底(success / error 都 resolve),onFinish / onError / onAbort
+          // 三个 callback 里 delete 防内存泄漏。
+          if (assistantMsgId > 0) {
+            inFlightGenerations.set(assistantMsgId, {
+              stream: mapBranch,
+              finished: result.text.then(
+                () => undefined,
+                () => undefined,
+              ),
+              sessionId,
+              startedAt: Date.now(),
+            });
+            console.log(
+              `[chat] cs-round-026 in-flight registered assistantMsgId=${assistantMsgId} sessionId=${sessionId}`,
+            );
+          }
           writer.merge(clientStream);
 
           // 3) 等 streamText 自然完成 — 不管 client 是否还在(disconnect 不再 abort)
@@ -944,6 +1063,8 @@ ${contextBlock}`;
           patchTimer = null;
         }
         flushPatch(4);
+        // cs-round-026:cleanup in-flight — streamText 真·业务错,resume 转发也无意义
+        inFlightGenerations.delete(assistantMsgId);
         lastPatchInFlight.then().catch(() => null);
         return serializeError(err);
       },
