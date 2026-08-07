@@ -45,6 +45,8 @@ export interface UseConversationApi {
   send: (text: string) => Promise<void>;
   listRef: React.RefObject<HTMLDivElement | null>;
   groups: MessageGroup[];
+  /** 拉历史失败时抛出的错误;UI 层据此渲染红条 / banner。null 表示未失败。 */
+  error: Error | null;
 }
 
 function resolveWsUrl(): string {
@@ -58,6 +60,7 @@ const GROUP_GAP_MS = 5 * 60 * 1000;
 export function useConversation(ticketId: number, sessionId: number | null): UseConversationApi {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<Error | null>(null);
   const [wsState, setWsState] = useState<WsState>('connecting');
   const sockRef = useRef<Socket | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -80,9 +83,10 @@ export function useConversation(ticketId: number, sessionId: number | null): Use
         knownIds.current = new Set(list.map((m) => m.id));
         setLoading(false);
       })
-      .catch((e: Error) => {
+      .catch(function (e: Error) {
         if (cancelled) return;
         setLoading(false);
+        setLoadError(e instanceof Error ? e : new Error(String(e)));
         // eslint-disable-next-line no-console
         console.error('[use-conversation] load history failed:', e);
       });
@@ -194,5 +198,5 @@ export function useConversation(ticketId: number, sessionId: number | null): Use
     return out;
   }, [messages]);
 
-  return { messages, loading, wsState, send, listRef, groups };
+  return { messages, loading, wsState, send, listRef, groups, error: loadError };
 }

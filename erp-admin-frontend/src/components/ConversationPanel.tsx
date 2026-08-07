@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Input, Button, Spin, Empty, message as antdMessage } from 'antd';
+import { Input, Button, Spin, Empty, Alert, message as antdMessage } from 'antd';
 import { useConversation } from '@/hooks/use-conversation';
 import MessageGroup from './chat/MessageGroup';
 import TicketStatusTag from './chat/TicketStatusTag';
@@ -34,7 +34,7 @@ export default function ConversationPanel({
 }: ConversationPanelProps) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
-  const { messages, loading, wsState, send, listRef, groups } = useConversation(
+  const { messages, loading, wsState, send, listRef, groups, error } = useConversation(
     ticketId,
     sessionId,
   );
@@ -54,40 +54,60 @@ export default function ConversationPanel({
   };
 
   if (!sessionId) {
-    return <Empty description="该工单未关联会话,无对话流" style={{ padding: '40px 0' }} />;
+    return (
+      <div>
+        <Alert
+          type="warning"
+          showIcon
+          message="该工单未关联会话,对话流不可用"
+          description="请联系创建方(ai-cs-demo 侧)补录会话上下文,或确认工单创建时 sessionKey 字段是否正确传值(应为 cs- 开头的字符串,不是数字 sessionId)。"
+          style={{ marginBottom: 12 }}
+        />
+        <Empty description="该工单未关联会话,无对话流" style={{ padding: '40px 0' }} />
+      </div>
+    );
   }
   if (loading) return <Spin tip="加载对话..." style={{ display: 'block', padding: 40 }} />;
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: 560,
-        border: '1px solid #E5E5E5',
-        borderRadius: 6,
-        background: '#ffffff',
-        overflow: 'hidden',
-      }}
-    >
+    <div>
+      {error && (
+        <Alert
+          type="error"
+          showIcon
+          message={`对话历史加载失败:${error.message}`}
+          style={{ marginBottom: 12 }}
+        />
+      )}
       <div
         style={{
-          padding: '8px 14px',
-          borderBottom: '1px solid #EFEFEF',
-          background: '#FAFAFA',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+          flexDirection: 'column',
+          height: 560,
+          border: '1px solid #E5E5E5',
+          borderRadius: 6,
+          background: '#ffffff',
+          overflow: 'hidden',
         }}
       >
-        <div style={{ fontSize: 13, color: '#595959' }}>
-          会话 #{sessionId}
-          {ticketNo && <span style={{ marginLeft: 8, color: '#8C8C8C' }}>· 工单 {ticketNo}</span>}
+        <div
+          style={{
+            padding: '8px 14px',
+            borderBottom: '1px solid #EFEFEF',
+            background: '#FAFAFA',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ fontSize: 13, color: '#595959' }}>
+            会话 #{sessionId}
+            {ticketNo && <span style={{ marginLeft: 8, color: '#8C8C8C' }}>· 工单 {ticketNo}</span>}
+          </div>
+          <div>
+            <TicketStatusTag state={wsState} />
+          </div>
         </div>
-        <div>
-          <TicketStatusTag state={wsState} />
-        </div>
-      </div>
       <div
         ref={listRef}
         style={{
@@ -133,6 +153,7 @@ export default function ConversationPanel({
         <Button type="primary" loading={sending} onClick={onSend}>
           发送
         </Button>
+      </div>
       </div>
     </div>
   );
