@@ -112,4 +112,33 @@ describe('cs-round-039: server/client dual fetch 修 2 bug', () => {
       ).not.toMatch(/erp\.getSessionOpenTicket\s*\(/);
     });
   });
+
+  // ── 契约 C:close-ticket BFF route 必须存在(补 closeTicketBySession 浏览器端路径) ──
+  describe('C. Given: ai-cs-demo /api/cs/sessions/[sessionId]/close-ticket BFF', () => {
+    it('Then: 必须存在 POST route,转发到 backend close-ticket endpoint', () => {
+      const p = resolve(
+        ROOT,
+        'ai-cs-demo/src/app/api/cs/sessions/[sessionId]/close-ticket/route.ts',
+      );
+      expect(existsSync(p), 'BFF close-ticket route 文件必须存在').toBe(true);
+      const text = stripComments(readFileSync(p, 'utf-8'));
+
+      // 必须处理 POST
+      expect(text, 'BFF close-ticket 必须 export async function POST').toMatch(
+        /export\s+async\s+function\s+POST/,
+      );
+
+      // 必须 server-side 转发到 backend close-ticket(用 INTERNAL_TOKEN)
+      expect(
+        text,
+        'BFF close-ticket 必须 server-side 转发到 backend(走 process.env.INTERNAL_TOKEN)',
+      ).toMatch(/process\.env\.INTERNAL_TOKEN/);
+
+      // 必须转发到 backend /api/internal/cs/sessions/.../close-ticket
+      expect(
+        text,
+        'BFF close-ticket 必须转发到 backend /api/internal/cs/sessions/:sessionKey/close-ticket',
+      ).toMatch(/\/api\/internal\/cs\/sessions\/[\s\S]*?close-ticket/);
+    });
+  });
 });
