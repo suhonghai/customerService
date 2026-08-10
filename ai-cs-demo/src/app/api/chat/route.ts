@@ -356,13 +356,37 @@ export async function POST(req: Request) {
       //   真人回复走 operator_reply(已有 bridge + WS emit),不需要 placeholder 占位。
       if (sessionId > 0) {
         try {
-          const openTicket = await erp.getSessionOpenTicket(sessionId);
-          const openTicketNo = (openTicket as unknown as { ticketNo?: string } | null)?.ticketNo;
-          if (openTicket && openTicketNo) {
+          // cs-round-039:server-side fetch 必须用绝对 URL(Node.js fetch 相对路径 parse 失败)。
+          //   不再走 erp.getSessionOpenTicket(client 风格相对路径 + token undefined bug)。
+          //   server-side 有 process.env.ERP_ADMIN_URL + INTERNAL_TOKEN,直连 backend。
+          const backendBase = process.env.ERP_ADMIN_URL || 'http://127.0.0.1:3001';
+          const internalToken =
+            process.env.INTERNAL_TOKEN ||
+            process.env.ERP_ADMIN_TOKEN ||
+            process.env.ERP_ADMIN_INTERNAL_TOKEN;
+          const probeRes = await fetch(
+            `${backendBase}/api/internal/cs/sessions/${sessionId}/open-ticket`,
+            {
+              headers: internalToken ? { 'X-Internal-Token': internalToken } : {},
+              cache: 'no-store',
+            },
+          );
+          const probeJson = probeRes.ok
+            ? ((await probeRes.json().catch(() => ({}))) as {
+                code?: number;
+                data?: { ticketNo?: string } | null;
+              })
+            : { code: -1, data: null };
+          const openTicketNo =
+            (probeJson.data as { ticketNo?: string } | null | undefined)?.ticketNo;
+          if (probeJson.code === 0 && openTicketNo) {
             // cs-round-031:客服已接手(session 已有 metadata.source='operator' 的消息)
             //   → 跳过重复 ack 合成(客户再问不该再弹"还没人接"的提示),
             //   但 ack 块**前**的 appendMessage(user) 已经落库,ERP user_message WS 照常 emit。
             //   仅首次转人工(还没有 operator 回复)才合成 ack。
+            // cs-round-039:hasOperatorReply 同样是 erp client 风格,但 server-side 有
+            //   env.ERP_ADMIN_TOKEN → this.request 不会抛 token undefined。
+            //   保留 this.request(不影响功能,后续 cs-round-039 cleanup 单独处理)
             const replyFromOperator = await erp.hasOperatorReply(sessionId);
             if (replyFromOperator) {
               console.log(

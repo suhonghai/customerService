@@ -345,16 +345,43 @@ export class ErpAdminClient {
     closedAt: string;
     closedBy: 'user';
   }> {
-    return this.request<{
-      ticketId: number;
-      ticketNo: string;
-      status: 4;
-      closedAt: string;
-      closedBy: 'user';
-    }>(`/internal/cs/sessions/${encodeURIComponent(sessionKey)}/close-ticket`, {
-      method: 'POST',
-      body: JSON.stringify(reason ? { reason } : {}),
-    });
+    // cs-round-039:同 cs-round-038 getSessionOpenTicket bug —
+    //   this.request 在浏览器端 token undefined → "ERP_ADMIN_TOKEN 未配置"。
+    //   改走浏览器相对路径 fetch Next.js BFF route /api/cs/sessions/.../close-ticket,
+    //   server-side 转 backend + X-Internal-Token(避免 CORS + 复用现有 BFF)。
+    //   credentials:'include' 带 cookie(此 endpoint 实际不强制需要,但保持一致)
+    const res = await fetch(
+      `/api/cs/sessions/${encodeURIComponent(sessionKey)}/close-ticket`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reason ? { reason } : {}),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(
+        `closeTicketBySession failed: status=${res.status} body=${text}`,
+      );
+    }
+    const json = (await res.json().catch(() => ({}))) as {
+      code?: number;
+      data?: {
+        ticketId: number;
+        ticketNo: string;
+        status: 4;
+        closedAt: string;
+        closedBy: 'user';
+      };
+      message?: string;
+    };
+    if (json.code !== 0 || !json.data) {
+      throw new Error(
+        `closeTicketBySession business error code=${json.code}: ${json.message ?? 'unknown'}`,
+      );
+    }
+    return json.data;
   }
 }
 
