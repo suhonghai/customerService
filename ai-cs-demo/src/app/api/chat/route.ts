@@ -407,22 +407,49 @@ export async function POST(req: Request) {
                 `[chat] in-human-handoff sessionId=${sessionId} ticketNo=${openTicketNo} replyFromOperator=false → AI 闭嘴`,
               );
               // cs-round-003:handoff ack 落库,刷新页面也能看到
-              // 用真实 messageId(从 appendMessage 返回),前端 useChat 收到的 messageId 就对得上
+              // cs-round-040:ack dedupe — 同一 session 已有 source='system-ack' row 时复用
+              //   (updateMessage 改 metadata.ticketNo + Prisma @updatedAt 自动刷时间戳),
+              //   而不是再 INSERT。复用同一 messageId = `srv-${id}`,前端 useChat 不重复创建气泡。
+              //   跨 ticket 切换(关单再开)→ 旧 ack 的 ticketNo 与当前不一致,复用旧 row
+              //   并 update ticketNo 即可,无需新建。
               let ackMessageId = `ack-${Date.now()}`;
               try {
-                const ackRow = await erp.appendMessage(sessionId, {
-                  role: 'assistant',
-                  content: ackText,
-                  status: 1, // 直接落库正常状态(不是 2 streaming)
-                  metadata: {
-                    source: 'system-ack',
-                    reason: 'human-handoff',
-                    ticketNo: openTicketNo,
-                  },
-                });
-                ackMessageId = `srv-${ackRow.id}`;
+                // 1. 查该 session 已有 source='system-ack' 的 row
+                const existingMessages = await erp.getSessionMessages(sessionId);
+                const existingAck = existingMessages.find(
+                  (m) =>
+                    (m as unknown as { metadata?: { source?: string } })
+                      .metadata?.source === 'system-ack',
+                );
+                if (existingAck) {
+                  // 2a. 有 ack → updateMessage(metadata 改 ticketNo + @updatedAt 自动刷)
+                  await erp.updateMessage(sessionId, existingAck.id, {
+                    metadata: {
+                      source: 'system-ack',
+                      reason: 'human-handoff',
+                      ticketNo: openTicketNo,
+                    },
+                  });
+                  ackMessageId = `srv-${existingAck.id}`;
+                  console.log(
+                    `[chat] ack dedupe UPDATE sessionId=${sessionId} ackId=${existingAck.id} ticketNo=${openTicketNo}`,
+                  );
+                } else {
+                  // 2b. 无 ack → appendMessage 新建
+                  const ackRow = await erp.appendMessage(sessionId, {
+                    role: 'assistant',
+                    content: ackText,
+                    status: 1, // 直接落库正常状态(不是 2 streaming)
+                    metadata: {
+                      source: 'system-ack',
+                      reason: 'human-handoff',
+                      ticketNo: openTicketNo,
+                    },
+                  });
+                  ackMessageId = `srv-${ackRow.id}`;
+                }
               } catch (e) {
-                // best-effort:appendMessage 失败不应阻断 ack 合成给前端
+                // best-effort:appendMessage/updateMessage 失败不应阻断 ack 合成给前端
                 console.warn(
                   '[chat] handoff ack 落库失败,fallback 内存 messageId:',
                   (e as Error).message,
