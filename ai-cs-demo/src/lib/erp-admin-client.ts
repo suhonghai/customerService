@@ -256,12 +256,15 @@ export class ErpAdminClient {
   async getSessionOpenTicket(
     sessionId: number,
   ): Promise<{ ticketNo: string; status: number; ticketId: number; priority: number } | null> {
+    // cs-round-038:浏览器端直接 fetch backend 跨域 CORS 失败 → RAGChat useEffect 拉 ticket
+    //   失败 → banner 不显示。改走 Next.js BFF route(api/cs/sessions/[id]/open-ticket),
+    //   浏览器调相对路径无 CORS,BFF 在 server-side 转发到 backend。
     return this.request<{
       ticketNo: string;
       status: number;
       ticketId: number;
       priority: number;
-    } | null>(`/api/internal/cs/sessions/${sessionId}/open-ticket`, { method: 'GET' });
+    } | null>(`/api/cs/sessions/${sessionId}/open-ticket`, { method: 'GET' });
   }
 
   /**
