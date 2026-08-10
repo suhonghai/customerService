@@ -423,6 +423,48 @@ export class ErpAdminClient {
     }
     return json.data;
   }
+
+  /**
+   * cs-round-043:浏览器端调 BFF 评 message
+   *   对齐 closeTicketBySession / renameSessionByKey:fetch 浏览器相对路径
+   *     (浏览器无 this.token,BFF server-side 转发带 X-Internal-Token)
+   *   失败 throw Error;当前 caller(RatingButtons)仅 console.warn(localStorage
+   *   已存作缓存,不报错)。后续如要 ErrorBubble 提示用户,改 caller 即可。
+   */
+  async rateMessage(
+    sessionId: number,
+    msgId: number,
+    rating: 1 | -1,
+    ratingText?: string,
+  ): Promise<{ id: number; metadata: { rating: number; ratedAt: string } }> {
+    const res = await fetch(
+      `/api/cs/sessions/${sessionId}/messages/${msgId}/rating`,
+      {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rating,
+          ...(ratingText ? { ratingText } : {}),
+        }),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`rateMessage failed: status=${res.status} body=${text}`);
+    }
+    const json = (await res.json().catch(() => ({}))) as {
+      code?: number;
+      data?: { id: number; metadata: { rating: number; ratedAt: string } };
+      message?: string;
+    };
+    if (json.code !== 0 || !json.data) {
+      throw new Error(
+        `rateMessage business error code=${json.code}: ${json.message ?? 'unknown'}`,
+      );
+    }
+    return json.data;
+  }
 }
 
 let _client: ErpAdminClient | null = null;

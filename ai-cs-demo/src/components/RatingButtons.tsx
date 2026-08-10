@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { getErpAdminClient } from '@/lib/erp-admin-client';
 
 /**
  * W9-10 Day 8 (F6):消息评分
@@ -53,7 +54,18 @@ function writeRatings(ratings: RatingsMap): void {
   }
 }
 
-export function RatingButtons({ messageId }: { messageId: string }) {
+export function RatingButtons({
+  messageId,
+  sessionId,
+}: {
+  messageId: string;
+  /**
+   * cs-round-043:backend csSession.id(整数)。可选 — 没传时仅写 localStorage
+   * (降级到 Day 8 行为,不报错)。前端 messageId = String(csMessage.id),
+   * sessionId = backend csSession.id(从 ChatView 透传)。
+   */
+  sessionId?: number;
+}) {
   // mount 后再读,避免 SSR hydration mismatch
   const [rating, setRating] = useState<Rating | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -70,11 +82,30 @@ export function RatingButtons({ messageId }: { messageId: string }) {
     if (rating) return; // 已评分,不可再点
     const all = readRatings();
     all[messageId] = newRating;
-    writeRatings(all);
+    writeRatings(all); // 本地缓存 — UI 立刻反馈 + 跨设备 + 离线兜底
     setRating(newRating);
     // 通知同窗口的其他组件(用 storage event 不可靠,自定义事件更稳)
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('cs_ratings_changed'));
+    }
+
+    // cs-round-043:backend 同步(主路径)。失败仅 console.warn(localStorage 已存)
+    // sessionId 优先用 prop 透传;没有时降级读 window.__csActiveSessionId
+    // (RAGChat mount 时写入 — 见 lib/components/RAGChat.tsx)。都没有则纯本地。
+    const effectiveSessionId =
+      sessionId ??
+      (typeof window !== 'undefined'
+        ? (window as unknown as { __csActiveSessionId?: number })
+            .__csActiveSessionId
+        : undefined);
+    if (effectiveSessionId !== undefined && /^\d+$/.test(messageId)) {
+      const msgIdNum = Number(messageId);
+      getErpAdminClient()
+        .rateMessage(effectiveSessionId, msgIdNum, newRating === 'up' ? 1 : -1)
+        .catch((e: unknown) => {
+          // localStorage 已是缓存,失败不报错;console.warn 提示开发期排错
+          console.warn('[rating persist] failed (localStorage kept):', e);
+        });
     }
   }
 

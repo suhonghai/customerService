@@ -95,6 +95,17 @@ export function RAGChat() {
     }
   }, [urlSessionId, activeId, switchSession]);
 
+  // cs-round-043:把当前 active session 的 backend id 写到 window,让 RatingButtons
+  //   不经 prop drilling 就能拿到(否则要把 sessionId 从 RAGChat 一路透传到 ChatView
+  //   → MessageBubble → RatingButtons,改 3 个文件,本方法最小侵入)。
+  //   activeSession?.id 是 backend csSession.id(整数,前端 messageId = String(csMessage.id))。
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const w = window as unknown as { __csActiveSessionId?: number };
+    w.__csActiveSessionId =
+      activeSession && activeSession.id > 0 ? activeSession.id : undefined;
+  }, [activeSession]);
+
   // cs-round-013:切 session 闪烁网关改为 `historyLoading` state
   const [historyLoading, setHistoryLoading] = useState(false);
 

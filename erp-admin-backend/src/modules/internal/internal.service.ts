@@ -11,6 +11,7 @@ import { UpdateMessageDto } from './dto/update-message.dto';
 import { CreateInternalTicketDto } from './dto/create-internal-ticket.dto';
 import { CreateInternalEscalationDto } from './dto/create-internal-escalation.dto';
 import { AppendMessageViaTicketDto } from './dto/append-message-via-ticket.dto';
+import { RateMessageDto } from './dto/rate-message.dto';
 import { TicketService } from '../ticket/ticket.service';
 import { RealtimeGateway } from '../ws/realtime.gateway';
 
@@ -907,5 +908,41 @@ export class InternalService {
       }
     }
     return `${prefix}${String(maxSeq + 1 + offset).padStart(3, '0')}`;
+  }
+
+  // ============================================================
+  // cs-round-043(2026-08-10):用户评分(per-message,落 csMessage.metadata.rating)
+  //   IDOR 校验:msg 必须属于该 session(防 INTERNAL_TOKEN 滥用改别人的消息评分)
+  //   metadata 内部 merge(不覆盖现有 lastChunkType / source: 'operator' 等)— 不能
+  //   复用 updateMessage(它整体覆盖 metadata,会冲掉),本方法显式 merge。
+  //   重复评分允许覆盖(用户改主意)— 旧 rating 字段被新值替换。
+  // ============================================================
+  async rateMessage(sessionId: number, msgId: number, dto: RateMessageDto) {
+    const msg = await this.prisma.csMessage.findFirst({
+      where: { id: msgId, sessionId },
+      select: { id: true, metadata: true },
+    });
+    if (!msg) {
+      throw new BizException(BizCode.NOT_FOUND, '消息不存在');
+    }
+
+    const existingMeta =
+      msg.metadata && typeof msg.metadata === 'object' && !Array.isArray(msg.metadata)
+        ? (msg.metadata as Record<string, unknown>)
+        : {};
+    const merged: Record<string, unknown> = {
+      ...existingMeta,
+      rating: dto.rating,
+      ratedAt: new Date().toISOString(),
+      source: 'user-rating',
+    };
+    if (dto.ratingText !== undefined) {
+      merged.ratingText = dto.ratingText;
+    }
+
+    return this.prisma.csMessage.update({
+      where: { id: msgId },
+      data: { metadata: merged as Prisma.InputJsonValue },
+    });
   }
 }

@@ -21,6 +21,7 @@ import { CreateInternalTicketDto } from './dto/create-internal-ticket.dto';
 import { CreateInternalEscalationDto } from './dto/create-internal-escalation.dto';
 import { AppendMessageViaTicketDto } from './dto/append-message-via-ticket.dto';
 import { RenameSessionDto } from './dto/rename-session.dto';
+import { RateMessageDto } from './dto/rate-message.dto';
 
 @ApiTags('Internal(内部 API)')
 @ApiBearerAuth('internal-token')
@@ -149,6 +150,22 @@ export class InternalController {
     @Param('msgId', ParseIntPipe) msgId: number,
   ) {
     return this.internalService.getMessage(id, msgId);
+  }
+
+  /**
+   * cs-round-043:per-message 评分(用户点 👍/👎)
+   *   落 csMessage.metadata.rating(merge 不覆盖现有 metadata,如 lastChunkType /
+   *   source: 'operator' 等),对齐 cs-round-040 metadata.source 范式。
+   *   不复用 updateMessage — 它整体覆盖 metadata,会冲掉其他键。
+   */
+  @Patch('sessions/:id/messages/:msgId/rating')
+  @ApiOperation({ summary: '消息评分(merge 到 csMessage.metadata)' })
+  async rateMessage(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('msgId', ParseIntPipe) msgId: number,
+    @Body() dto: RateMessageDto,
+  ) {
+    return this.internalService.rateMessage(id, msgId, dto);
   }
 
   /**
