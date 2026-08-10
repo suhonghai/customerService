@@ -256,15 +256,25 @@ export class ErpAdminClient {
   async getSessionOpenTicket(
     sessionId: number,
   ): Promise<{ ticketNo: string; status: number; ticketId: number; priority: number } | null> {
-    // cs-round-038:浏览器端直接 fetch backend 跨域 CORS 失败 → RAGChat useEffect 拉 ticket
-    //   失败 → banner 不显示。改走 Next.js BFF route(api/cs/sessions/[id]/open-ticket),
-    //   浏览器调相对路径无 CORS,BFF 在 server-side 转发到 backend。
-    return this.request<{
-      ticketNo: string;
-      status: number;
-      ticketId: number;
-      priority: number;
-    } | null>(`/api/cs/sessions/${sessionId}/open-ticket`, { method: 'GET' });
+    // cs-round-038:浏览器端 this.baseUrl 是 env.ERP_ADMIN_URL(undefined → fallback
+    //   http://127.0.0.1:3001),拼 path 后变成跨域请求 backend 404 → fetch 失败。
+    //   直接走相对路径调 Next.js BFF,浏览器 fetch 当前 origin 无 CORS。
+    //   credentials:'include' 自动带 cs_access_token cookie(虽然此 endpoint 不需要,但保持一致)
+    const res = await fetch(`/api/cs/sessions/${sessionId}/open-ticket`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      // 后端 /api/cs/sessions/[id]/open-ticket 返 200 时 status 是 fetch 原状态
+      // Next.js BFF 已经包装 {code,data,message} 结构,code !== 0 也算业务错
+      return null;
+    }
+    const json = (await res.json().catch(() => ({}))) as {
+      code?: number;
+      data?: { ticketNo: string; status: number; ticketId: number; priority: number } | null;
+    };
+    return json.data ?? null;
   }
 
   /**
