@@ -130,6 +130,8 @@ export function RAGChat() {
   }, [backendSessionId]);
   const [streamError, setStreamError] = useState<UserFacingError | null>(null);
   const [deleteError, setDeleteError] = useState<UserFacingError | null>(null);
+  // cs-round-042:rename 失败提示(乐观更新已 revert,这里给用户感知)
+  const [renameError, setRenameError] = useState<UserFacingError | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [kbReady, setKbReady] = useState(false);
   const visitorIdRef = useRef<string | null>(null);
@@ -390,7 +392,16 @@ export function RAGChat() {
       });
   }
   function handleRenameSession(id: string, title: string) {
-    renameSession(id, title);
+    // cs-round-042:async + 失败 ErrorBubble(use-sessions 内部已乐观更新 + revert)
+    renameSession(id, title).catch((e: unknown) => {
+      const raw = e instanceof Error ? e : new Error(String(e));
+      setRenameError({
+        title: '重命名失败',
+        hint: '后端没响应或鉴权失败,标题已回滚到原值。重试一次,或刷新页面后再改。',
+        action: { label: '知道了', type: 'reset' },
+        raw,
+      });
+    });
   }
   function handleErrorAction(type: UserFacingErrorActionType) {
     if (type === 'retry') regenerate();
@@ -401,6 +412,7 @@ export function RAGChat() {
       setStreamError(null);
     }
     if (type === 'reset') setDeleteError(null);
+    if (type === 'reset') setRenameError(null);
   }
   const debugTrace = process.env.NEXT_PUBLIC_DEBUG_TRACE === 'true';
   const debugRetrieval = process.env.NEXT_PUBLIC_DEBUG_RETRIEVAL === 'true';
@@ -434,6 +446,12 @@ export function RAGChat() {
         {deleteError && (
           <div className="px-3 pb-3">
             <ErrorBubble error={deleteError} onAction={handleErrorAction} />
+          </div>
+        )}
+        {/* cs-round-042:rename 失败 ErrorBubble */}
+        {renameError && (
+          <div className="px-3 pb-3">
+            <ErrorBubble error={renameError} onAction={handleErrorAction} />
           </div>
         )}
       </div>

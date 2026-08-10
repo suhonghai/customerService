@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UIMessage } from 'ai';
 import { getVisitorId } from '@/lib/visitor';
 import { sanitizeTitle } from '@/lib/pii-sanitize';
+import { getErpAdminClient } from '@/lib/erp-admin-client';
 import { withCache } from '@/lib/with-cache';
 
 /**
@@ -303,14 +304,41 @@ export function useSessions() {
     });
   }, []);
 
-  /** 重命名会话(本地更新 title + 调后端 PATCH visitorName,fire-and-forget) */
-  const renameSession = useCallback((id: string, title: string) => {
+  /**
+   * cs-round-042:重命名会话(乐观更新 + 后端 PATCH + 失败 revert + throw)
+   *   浏览器用户点 ✏️ 改 sidebar 标题 → 立即本地 setSessions 显示新标题
+   *   调 erp.renameSessionByKey(sessionKey, title) 走 BFF → backend PATCH
+   *   失败 → setSessions 回滚到 prevTitle + throw ErrorBubble 给 RAGChat
+   *   不退回 fire-and-forget 静默失败(原 [title persist] failed 范式只用于
+   *   updateActiveSession 自动派生 title,用户主动改名要走 revert)
+   */
+  const renameSession = useCallback(async (id: string, title: string): Promise<void> => {
     const trimmed = title.trim() || DEFAULT_TITLE;
+    const target = sessionsRef.current.find((s) => String(s.id) === id);
+    const prevTitle = target?.title;
+    const sessionKey = target?.sessionKey;
+    if (!sessionKey) {
+      throw new Error(`renameSession: session not found for id=${id}`);
+    }
+    // 乐观本地更新 — 用户立刻看到新标题
     setSessions((prev) =>
       prev.map((s) =>
         String(s.id) === id ? { ...s, title: trimmed, updatedAt: new Date().toISOString() } : s,
       ),
     );
+    try {
+      await getErpAdminClient().renameSessionByKey(sessionKey, trimmed);
+    } catch (e) {
+      // 失败回滚 title(prevTitle 是闭包变量,sessionsRef 也是最新值,安全)
+      if (prevTitle !== undefined) {
+        setSessions((prev) =>
+          prev.map((s) =>
+            String(s.id) === id ? { ...s, title: prevTitle } : s,
+          ),
+        );
+      }
+      throw e; // 上抛给 RAGChat 走 ErrorBubble
+    }
   }, []);
 
   /** 切换激活会话。activeId 由 RAGChat 通过 useEffect 同步。 */

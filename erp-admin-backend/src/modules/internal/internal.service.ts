@@ -577,14 +577,12 @@ export class InternalService {
         // (否则 useEffect mount 时 ticket 还没创建 → 永远 false,banner 永不显示)
         if (sessionRow?.id) {
           try {
-            this.realtime.server
-              .to(`session:${sessionRow.id}`)
-              .emit('ticket_created', {
-                ticketId: ticket.id,
-                ticketNo: ticket.ticketNo,
-                status: ticket.status,
-                priority: ticket.priority,
-              });
+            this.realtime.server.to(`session:${sessionRow.id}`).emit('ticket_created', {
+              ticketId: ticket.id,
+              ticketNo: ticket.ticketNo,
+              status: ticket.status,
+              priority: ticket.priority,
+            });
           } catch (e) {
             this.logger.warn(
               `ticket_created emit 失败 ticket=${ticket.id}: ${(e as Error).message}`,
@@ -814,34 +812,30 @@ export class InternalService {
         },
       });
       // cs-round-036:写 audit log — Prisma CsTicketLog.operatorId 必填,这里用 ticket.creatorId
-    // (system 占位 admin,见 createEscalation);comment 标"用户主动关单"区分来源
-    await tx.csTicketLog.create({
-      data: {
-        ticketId: ticket.id,
-        action: 'STATUS_CHANGE',
-        fromVal: String(fromStatus),
-        toVal: '4',
-        operatorId: ticket.creatorId,
-        comment: reason
-          ? `用户主动结束对话:${reason}`
-          : '用户主动结束对话',
-      },
-    });
+      // (system 占位 admin,见 createEscalation);comment 标"用户主动关单"区分来源
+      await tx.csTicketLog.create({
+        data: {
+          ticketId: ticket.id,
+          action: 'STATUS_CHANGE',
+          fromVal: String(fromStatus),
+          toVal: '4',
+          operatorId: ticket.creatorId,
+          comment: reason ? `用户主动结束对话:${reason}` : '用户主动结束对话',
+        },
+      });
       return u;
     });
 
     // 4. WS emit ticket_closed(同 ticket.service.updateStatus status=4 路径的 payload schema)
     if (updated.sessionId) {
       try {
-        this.realtime.server
-          .to(`session:${updated.sessionId}`)
-          .emit('ticket_closed', {
-            ticketId: updated.id,
-            ticketNo: updated.ticketNo,
-            status: 4,
-            closedAt: updated.closedAt?.toISOString() ?? now.toISOString(),
-            closedBy: 'user',
-          });
+        this.realtime.server.to(`session:${updated.sessionId}`).emit('ticket_closed', {
+          ticketId: updated.id,
+          ticketNo: updated.ticketNo,
+          status: 4,
+          closedAt: updated.closedAt?.toISOString() ?? now.toISOString(),
+          closedBy: 'user',
+        });
       } catch (e) {
         this.logger.warn(
           `closeTicketBySession emit 失败 ticket=${updated.id}: ${(e as Error).message}`,
@@ -860,6 +854,30 @@ export class InternalService {
       closedAt: updated.closedAt,
       closedBy: 'user' as const,
     };
+  }
+
+  // ============================================================
+  // cs-round-042(2026-08-10):按 sessionKey 重命名(no-op 友好)
+  //   对齐 cs-round-005 deleteSessionByKey 模式:findUnique → 未命中返
+  //   { updated: false }(不报错,前端 rename UI 不卡)+ 命中 update visitorName。
+  //   csSession.updatedAt 由 Prisma @updatedAt 自动刷(Schema 已声明)。
+  //   列名:title 字段在 DB 里就是 csSession.visitorName(schema 没独立 title 列,
+  //   visitor_name 复用为 title — 见 listSessions select 与 upsertSession update 分支)。
+  // ============================================================
+  async renameSessionByKey(sessionKey: string, title: string) {
+    const row = await this.prisma.csSession.findUnique({
+      where: { sessionKey },
+      select: { id: true },
+    });
+    if (!row) {
+      this.logger.log(`renameSessionByKey: sessionKey=${sessionKey} 未命中(no-op)`);
+      return { id: null, updated: false, title };
+    }
+    await this.prisma.csSession.update({
+      where: { id: row.id },
+      data: { visitorName: title },
+    });
+    return { id: row.id, updated: true, title };
   }
 
   // ============================================================

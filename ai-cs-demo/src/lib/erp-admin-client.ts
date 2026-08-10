@@ -383,6 +383,46 @@ export class ErpAdminClient {
     }
     return json.data;
   }
+
+  /**
+   * cs-round-042:浏览器端调 BFF 改会话标题
+   *   对齐 closeTicketBySession:fetch 浏览器相对路径(浏览器无 this.token)
+   *   BFF server-side 转发到 backend + X-Internal-Token
+   *   失败 throw Error 让 RAGChat 走 ErrorBubble revert 路径
+   *   service no-op 友好:sessionKey 找不到 → 返 { updated: false }(不抛错),
+   *   此时 caller(RAGChat / use-sessions)按成功处理,但 UI 不变(本地已乐观更新需 revert)
+   */
+  async renameSessionByKey(
+    sessionKey: string,
+    title: string,
+  ): Promise<{ id: number | null; updated: boolean; title: string }> {
+    const res = await fetch(
+      `/api/cs/sessions/${encodeURIComponent(sessionKey)}/rename`,
+      {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(
+        `renameSessionByKey failed: status=${res.status} body=${text}`,
+      );
+    }
+    const json = (await res.json().catch(() => ({}))) as {
+      code?: number;
+      data?: { id: number | null; updated: boolean; title: string };
+      message?: string;
+    };
+    if (json.code !== 0 || !json.data) {
+      throw new Error(
+        `renameSessionByKey business error code=${json.code}: ${json.message ?? 'unknown'}`,
+      );
+    }
+    return json.data;
+  }
 }
 
 let _client: ErpAdminClient | null = null;

@@ -20,6 +20,7 @@ import { UpdateMessageDto } from './dto/update-message.dto';
 import { CreateInternalTicketDto } from './dto/create-internal-ticket.dto';
 import { CreateInternalEscalationDto } from './dto/create-internal-escalation.dto';
 import { AppendMessageViaTicketDto } from './dto/append-message-via-ticket.dto';
+import { RenameSessionDto } from './dto/rename-session.dto';
 
 @ApiTags('Internal(内部 API)')
 @ApiBearerAuth('internal-token')
@@ -237,10 +238,7 @@ export class InternalController {
     @Param('sessionKey') sessionKey: string,
     @Body() body: { reason?: string } = {},
   ) {
-    return this.internalService.closeTicketBySession(
-      sessionKey,
-      body.reason,
-    );
+    return this.internalService.closeTicketBySession(sessionKey, body.reason);
   }
 
   /**
@@ -293,5 +291,18 @@ export class InternalController {
   @ApiOperation({ summary: '按 sessionKey 软删(不存在 → no-op)' })
   async deleteSessionByKey(@Param('sessionKey') sessionKey: string) {
     return this.internalService.deleteSessionByKey(sessionKey);
+  }
+
+  /**
+   * cs-round-042:按 sessionKey 重命名(用户主动改 sidebar 会话标题)
+   *   对齐 DELETE sessions/by-key/:sessionKey(纯字段更新类 CRUD 用 by-key 前缀)
+   *   service no-op 友好:sessionKey 找不到 → 返 { updated: false }(不报错,
+   *   前端 rename UI 不阻塞)。
+   *   body.title 落 csSession.visitorName(visitorName 复用为 title,schema 没独立 title 列)。
+   */
+  @Patch('sessions/by-key/:sessionKey')
+  @ApiOperation({ summary: '按 sessionKey 重命名(更新 csSession.visitorName)' })
+  async renameSessionByKey(@Param('sessionKey') sessionKey: string, @Body() dto: RenameSessionDto) {
+    return this.internalService.renameSessionByKey(sessionKey, dto.title);
   }
 }

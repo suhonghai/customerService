@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 function mockListOnly(
   sessions: Array<{ id: number; sessionKey: string; title: string; messageCount: number; updatedAt: string; startedAt: string }> = [],
+  options?: { renameShouldFail?: boolean },
 ) {
   return vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
     const url = typeof input === 'string' ? input : (input as Request).url;
@@ -23,6 +24,22 @@ function mockListOnly(
     }
     if (url.includes('/api/sessions/upsert')) {
       return new Response(JSON.stringify({ id: 999 }), { status: 200 });
+    }
+    // cs-round-042:rename 走 BFF /api/cs/sessions/.../rename
+    if (url.includes('/api/cs/sessions/') && url.includes('/rename')) {
+      if (options?.renameShouldFail) {
+        return new Response(
+          JSON.stringify({ code: 50001, message: 'mocked rename failure' }),
+          { status: 502 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: { id: 1, updated: true, title: 'mocked' },
+        }),
+        { status: 200 },
+      );
     }
     return new Response('not mocked', { status: 500 });
   });
@@ -179,7 +196,7 @@ describe('useSessions — cs-round-013 (backend-driven, no localStorage)', () =>
     expect(result.current.sessions).toHaveLength(1); // 没被删
   });
 
-  it('renameSession(id, title) → 更新 sessions 列表中对应 title', async () => {
+  it('renameSession(id, title) → 乐观更新 title + 调后端 PATCH', async () => {
     mockListOnly([
       {
         id: 1,
@@ -197,10 +214,48 @@ describe('useSessions — cs-round-013 (backend-driven, no localStorage)', () =>
       await new Promise((r) => setTimeout(r, 20));
     });
 
-    act(() => {
-      result.current.renameSession('1', '新标题');
+    await act(async () => {
+      await result.current.renameSession('1', '新标题');
     });
 
     expect(result.current.sessions[0].title).toBe('新标题');
+  });
+
+  // cs-round-042:rename 失败 → setSessions 回滚到 prevTitle + throw 给 RAGChat
+  it('renameSession 失败 → revert title + throw(RAGChat 走 ErrorBubble)', async () => {
+    mockListOnly(
+      [
+        {
+          id: 1,
+          sessionKey: 'cs-1',
+          title: '原标题',
+          messageCount: 0,
+          updatedAt: new Date().toISOString(),
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      { renameShouldFail: true },
+    );
+    const useSessions = await freshUseSessions();
+    const { renderHook, act } = await import('@testing-library/react');
+    const { result } = renderHook(() => useSessions());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    let caught: Error | null = null;
+    await act(async () => {
+      try {
+        await result.current.renameSession('1', '新标题');
+      } catch (e) {
+        caught = e instanceof Error ? e : new Error(String(e));
+      }
+    });
+
+    // 失败 → 回滚到原标题
+    expect(result.current.sessions[0].title).toBe('原标题');
+    // 失败 → 上抛给 caller(RAGChat 走 ErrorBubble)
+    expect(caught).toBeTruthy();
+    expect((caught as unknown as Error).message).toMatch(/renameSessionByKey failed/);
   });
 });
