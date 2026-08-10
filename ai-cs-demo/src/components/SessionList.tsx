@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react'
 import type { Session } from '@/hooks/use-sessions'
+import { ConfirmDialog } from './ConfirmDialog'
 
 interface SessionListProps {
   sessions: Session[]
@@ -45,6 +46,9 @@ export function SessionList({
   // 哪条正在被 inline 编辑(只允许同时 1 条)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
+  // cs-round-041:删除确认弹窗(cs-round-040 之前用浏览器原生 confirm,丑且割裂)
+  const [pendingDelete, setPendingDelete] = useState<Session | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   function startEdit(s: Session) {
     setEditingId(String(s.id))
@@ -65,8 +69,21 @@ export function SessionList({
   }
 
   function handleDeleteClick(s: Session) {
-    const msg = `确认删除会话「${s.title}」?此操作不可恢复。`
-    if (confirm(msg)) onDelete(String(s.id))
+    setPendingDelete(s)
+  }
+
+  async function handleConfirmDelete() {
+    if (!pendingDelete) return
+    const id = String(pendingDelete.id)
+    setDeleting(true)
+    try {
+      // 不 await — 父组件 onDelete 内部管理 setDeleteError,
+      // 这里保持原 sync 行为,把 dialog 立刻关掉(失败由 ErrorBubble 提示)
+      onDelete(id)
+      setPendingDelete(null)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -291,6 +308,23 @@ export function SessionList({
       >
         共 {sessions.length} 个会话
       </div>
+
+      {/* cs-round-041:删除会话确认弹窗(自写 ConfirmDialog,匹配 W9-UI 暖橙风格) */}
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="删除会话?"
+        description={
+          pendingDelete
+            ? `确认删除会话「${pendingDelete.title}」?此操作不可恢复。`
+            : undefined
+        }
+        confirmLabel="删除"
+        cancelLabel="取消"
+        variant="danger"
+        busy={deleting}
+      />
     </aside>
   )
 }

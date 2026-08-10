@@ -60,6 +60,20 @@
   .mono {
     font-family: var(--font-mono), 'JetBrains Mono', 'Menlo', monospace;
   }
+
+  /* 所有 button 启用 → pointer / 禁用 → not-allowed
+     - 浏览器对 <button> 默认就是 pointer,但部分 framework(如某些 headless UI 自渲)
+       会让 button 看起来是 default cursor,这里显式兜底
+     - disabled 态:不管 className 有没有 disabled:cursor-not-allowed,
+       一律 not-allowed(含只用 disabled:opacity-* 的组件,如
+       WelcomeMessage / FAQList / EscalateButton / login 提交按钮)
+     - 与现有 inline style="cursor:..." 互不冲突(内联始终优先) */
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
 }
 
 /* ============================================================
