@@ -55,6 +55,13 @@ services:
       args:
         APP_ENV: ${APP_ENV:-production}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+        # Next.js 客户端代码读 process.env.NEXT_PUBLIC_* 走 build-time 内联,
+        # 不走 env_file(runtime)。不传 → 浏览器拿到空串 → fetch 退化成相对路径
+        # → 打到 :9529 → 404。烘 3 个:API_BASE_URL / CHROMA_URL / INTERNAL_TOKEN
+        # (WS realtime 鉴权也要客户端可见,与 INTERNAL_TOKEN 同值,见 CLAUDE.md cs-round-030)。
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+        NEXT_PUBLIC_CHROMA_URL: ${NEXT_PUBLIC_CHROMA_URL:-}
+        NEXT_PUBLIC_INTERNAL_TOKEN: ${NEXT_PUBLIC_INTERNAL_TOKEN:-}
     image: w11-ai-cs-demo:${APP_ENV:-production}
     container_name: ${COMPOSE_PROJECT_NAME}-ai-cs-demo
     env_file:

@@ -11,16 +11,28 @@
 FROM node:20-alpine AS builder
 
 ARG APP_ENV=production
+# 透传 build-time NEXT_PUBLIC_*,让 pnpm run build 时 process.env 有值 → 客户端 JS 烘焙正确。
+# 缺这些 ARG → Next.js 把 NEXT_PUBLIC_* 当 undefined 烘进去 → 浏览器拿到空字符串 → 相对路径 404。
+ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_CHROMA_URL
+ARG NEXT_PUBLIC_INTERNAL_TOKEN
 ENV APP_ENV=${APP_ENV} \
-    NODE_ENV=${APP_ENV}
+    NODE_ENV=${APP_ENV} \
+    NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
+    NEXT_PUBLIC_CHROMA_URL=${NEXT_PUBLIC_CHROMA_URL} \
+    NEXT_PUBLIC_INTERNAL_TOKEN=${NEXT_PUBLIC_INTERNAL_TOKEN}
 
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
+# 修 builder 阶段 devDeps 漂移:@tailwindcss/postcss 在 devDeps,
+# NODE_ENV=production 下 pnpm install --frozen-lockfile 会跳过 → next build 报
+# "Cannot find module '@tailwindcss/postcss'"。inline NODE_ENV=development 仅覆盖此 RUN,
+# ENV 块里的 NODE_ENV=production 仍作用于 build 阶段(next build 优化)。
 RUN npm config set registry https://registry.npmmirror.com \
  && npm install -g pnpm@9 --registry=https://registry.npmmirror.com \
  && pnpm config set registry https://registry.npmmirror.com \
- && pnpm install --frozen-lockfile
+ && NODE_ENV=development pnpm install --frozen-lockfile
 
 COPY next.config.ts tsconfig.json next-env.d.ts ./
 COPY postcss.config.mjs ./

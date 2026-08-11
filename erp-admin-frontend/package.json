@@ -12,6 +12,7 @@
     "build:dev": "vite build --mode development",
     "build:uat": "vite build --mode uat",
     "build:prod": "vite build --mode production",
+    "build:production": "vite build --mode production",
     "lint": "pnpm lint:eslint && pnpm lint:oxlint",
     "lint:eslint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:oxlint": "oxlint",
