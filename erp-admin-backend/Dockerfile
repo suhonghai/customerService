@@ -6,6 +6,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# 2026-08-11:装 native module 编译工具(bcrypt / sharp / canvas 等需要)
+RUN apk add --no-cache python3 make g++ gcc libc6-compat
+
 # 先拷 lockfile 最大化 cache
 COPY package.json pnpm-lock.yaml ./
 COPY prisma ./prisma
