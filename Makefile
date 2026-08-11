@@ -409,6 +409,21 @@ build: ## 本地构建所有子包(NestJS / Vite / Next.js 各自的 build)
 	pnpm --filter erp-admin-frontend build
 	pnpm --filter ai-cs-demo build
 
+build-images: guard ## 只 build 3 个自建镜像到本地(不启动,用于离线打包到服务器)
+	@if [ ! -f $(ENV_FILE) ]; then \
+		echo "[ERROR] $(ENV_FILE) 不存在,先 cp .env.example $(ENV_FILE) 并填入 secrets" >&2; \
+		exit 1; \
+	fi
+	@echo "=== build 3 个自建镜像(ENV=$(ENV)) ==="
+ifeq ($(ENV),production)
+	$(COMPOSE) build --pull erp-admin-backend erp-admin-frontend ai-cs-demo
+else
+	$(COMPOSE) build erp-admin-backend erp-admin-frontend ai-cs-demo
+endif
+	@echo ""
+	@echo "=== 镜像列表 ==="
+	@docker images | grep -E 'w11-(backend|frontend|ai-cs-demo)'
+
 deploy: ## 生产部署 = make ENV=production up(docker compose 一键起)
 	@echo "⚠️  别再 rm + cp 旧式 deploy.sh;直接 make ENV=production up"
 	@echo "   见 CLAUDE.md「子包『在哪看什么』」+ 5× docker-compose.*.yml"
