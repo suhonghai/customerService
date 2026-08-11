@@ -431,7 +431,10 @@ async function main() {
   // 6. Day 4: 1 个默认 AI 模型 + 2 个 Prompt 模板
   // ============================================
   // AI 模型:用 .env 里的 DASHSCOPE_API_KEY(若没配就跳过)
+  // [cs-round-045] 同时把 EMBED_MODEL 写到 embed_model 字段,
+  // 让 EmbeddingService 启动时直接读 DB,而不是去查 env。
   const dashscopeKey = process.env.DASHSCOPE_API_KEY;
+  const embedModel = process.env.EMBED_MODEL || null;
   if (dashscopeKey && dashscopeKey !== 'sk-your-dashscope-key-here') {
     await prisma.aiModelConfig.upsert({
       where: { code: 'qwen3.7-plus' },
@@ -439,6 +442,7 @@ async function main() {
         apiKey: encryptApiKey(dashscopeKey),
         provider: 'dashscope',
         modelId: 'qwen3.7-plus',
+        embedModel,
         isDefault: true,
         status: 1,
       },
@@ -447,6 +451,7 @@ async function main() {
         name: 'Qwen 3.7 Plus(默认)',
         provider: 'dashscope',
         modelId: 'qwen3.7-plus',
+        embedModel,
         apiKey: encryptApiKey(dashscopeKey),
         baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
         temperature: 0.7,
@@ -463,7 +468,7 @@ async function main() {
       where: { isDefault: true, NOT: { code: 'qwen3.7-plus' }, deletedAt: null },
       data: { isDefault: false },
     });
-    console.log('✅ Day 4 默认 AI 模型 qwen3.7-plus 已 seed(apiKey 已加密)');
+    console.log(`✅ Day 4 默认 AI 模型 qwen3.7-plus 已 seed(apiKey 已加密,embedModel=${embedModel ?? '(null,fallback env/DEFAULT)'})`);
   } else {
     console.log('⚠️  DASHSCOPE_API_KEY 未配置,跳过 AI 模型 seed');
   }

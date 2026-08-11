@@ -77,18 +77,19 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
   /**
    * 把 AiConfigService 返的 ActiveAiConfig 投影成 DashscopeConfig
    *
-   * 设计(W11 闭环修正 2026-07-13):embedding 模型与 chat 模型**解耦**。
+   * 设计(W11 闭环修正 2026-07-13 + cs-round-045 2026-08-11):
    * - apiKey / baseURL 从 active chat config 取(热重载 key 轮换 + 切 provider 是真需求)
-   * - model **不**从 chat config 取(chat model 是 qwen3.7-plus,
-   *   embedding 必须是 text-embedding-v4,跨类别 dashscope OpenAI compat mode 返 404)
-   * - model 走 process.env.EMBED_MODEL,默认 'text-embedding-v4'
-   * - 切换 chat model 不影响 embedding,切换 embedding model 需要改 env 重启
+   * - embedding model 从 active config.embedModel 字段取(后台 UI 可配),
+   *   DB 没设时降级 process.env.EMBED_MODEL,再降级 DEFAULT_MODEL
+   * - 切换 chat model 不影响 embedding;切换 embedding model 后台改一下立刻热重载,
+   *   不需要改 env 不需要重启容器
+   * - 兜底链:cfg.embedModel ?? process.env.EMBED_MODEL ?? DEFAULT_MODEL
    */
   private toDashscopeConfig(cfg: ActiveAiConfig): DashscopeConfig {
     return {
       apiKey: cfg.apiKey,
       baseURL: cfg.baseUrl || undefined,
-      model: process.env.EMBED_MODEL || DEFAULT_MODEL,
+      model: cfg.embedModel || process.env.EMBED_MODEL || DEFAULT_MODEL,
     };
   }
 

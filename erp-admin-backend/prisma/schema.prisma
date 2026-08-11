@@ -324,6 +324,11 @@ model AiModelConfig {
   name         String   @db.VarChar(100)
   provider     String   @db.VarChar(50) // dashscope / openai / minimax
   modelId      String   @map("model_id") @db.VarChar(100)
+  // embedding 模型名(可选)— 后台 UI 可配;EmbeddingService 优先读此字段,
+  // DB 为空时 fallback env EMBED_MODEL,再 fallback DEFAULT_MODEL(text-embedding-v4)。
+  // 与 modelId(chat 模型)解耦:同 provider 的 apiKey/baseUrl 可共用,
+  // 但 model 必须按类目走,跨类目 OpenAI compat mode 会 404。
+  embedModel   String?  @map("embed_model") @db.VarChar(100)
   apiKey       String?  @map("api_key") @db.VarChar(500)
   baseUrl      String?  @map("base_url") @db.VarChar(200)
   temperature  Float    @default(0.7)

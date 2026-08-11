@@ -15,6 +15,7 @@ export interface AIConfig {
   name: string;
   provider: 'dashscope' | 'openai' | 'minimax' | string;
   modelId: string;
+  embedModel?: string | null; // [cs-round-045] 向量模型名,后台 UI 可配
   apiKey?: string;
   temperature?: number;
   topP?: number;
@@ -42,6 +43,7 @@ export interface CreateAIConfigDto {
   name: string;
   provider: string;
   modelId: string;
+  embedModel?: string; // [cs-round-045] 后台可配向量模型名
   apiKey?: string;
   temperature?: number;
   topP?: number;

@@ -42,6 +42,16 @@ export class UpdateAiConfigDto {
   @MaxLength(100)
   modelId?: string;
 
+  /**
+   * 向量模型名(可选)— 显式传 null 不允许(只可"省略不改"或"改成具体值")。
+   * 后台 UI 加 input + 用 defaultValue 保留原值即可。
+   */
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  embedModel?: string;
+
   @IsOptional()
   @IsString()
   @MinLength(1)

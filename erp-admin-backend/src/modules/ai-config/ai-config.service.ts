@@ -3,7 +3,7 @@ import { Subject, Observable } from 'rxjs';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BizException, BizCode } from '../../common/exceptions/biz.exception';
-import { encryptApiKey, decryptApiKey, maskApiKey } from '../../common/utils/crypto.util';
+import { encryptApiKey, decryptApiKey } from '../../common/utils/crypto.util';
 import { CreateAiConfigDto } from './dto/create-ai-config.dto';
 import { UpdateAiConfigDto } from './dto/update-ai-config.dto';
 import { QueryAiConfigDto } from './dto/query-ai-config.dto';
@@ -41,6 +41,7 @@ export interface ActiveAiConfig {
   name: string;
   provider: string;
   modelId: string;
+  embedModel: string | null; // 可选;EmbeddingService 读到 fallback env/DEFAULT
   apiKey: string; // 明文
   baseUrl: string | null;
   temperature: number;
@@ -89,17 +90,21 @@ export class AiConfigService {
     createdAt: Date;
     updatedAt: Date;
   }) {
-    let masked = '****';
+    // [cs-round-045 fix] 改:不再脱敏,直接返回原值。
+    // 原因:之前 maskApiKey 出来的串(sk-****-****-****-xxxx)被前端当成原值填回表单,
+    // 用户没改 apiKey 就保存时,后端二次加密存了脱敏串,下次 test 解出来拿去调
+    // DashScope 直接 401。给内部 admin 工具看真 key 是合理 trade-off,
+    // 风险已在 ai-config:view 权限门 + JWT 鉴权那层挡着。
+    // 如果以后需要区分"列表脱敏 / 详情原值",这里改 getActive / getById 走不同投影即可。
+    let plain: string | null = null;
     if (row.apiKey) {
       try {
-        const plain = decryptApiKey(row.apiKey);
-        masked = maskApiKey(plain);
+        plain = decryptApiKey(row.apiKey);
       } catch (e) {
-        // 解密失败(比如密钥换了)→ 只显示 '****'
         this.logger.warn(`decrypt failed for config id=${row.id}: ${(e as Error).message}`);
       }
     }
-    return { ...row, apiKey: masked };
+    return { ...row, apiKey: plain };
   }
 
   /**
@@ -193,6 +198,7 @@ export class AiConfigService {
             name: row.name,
             provider: row.provider,
             modelId: row.modelId,
+            embedModel: row.embedModel,
             apiKey: row.apiKey ? decryptApiKey(row.apiKey) : '',
             baseUrl: row.baseUrl,
             temperature: row.temperature,
@@ -241,6 +247,7 @@ export class AiConfigService {
             name: dto.name,
             provider: dto.provider,
             modelId: dto.modelId,
+            embedModel: dto.embedModel ?? null,
             apiKey: encryptApiKey(dto.apiKey),
             baseUrl: dto.baseUrl ?? null,
             temperature: dto.temperature ?? 0.7,
@@ -287,6 +294,7 @@ export class AiConfigService {
             name: dto.name ?? undefined,
             provider: dto.provider ?? undefined,
             modelId: dto.modelId ?? undefined,
+            embedModel: dto.embedModel ?? undefined,
             apiKey: dto.apiKey ? encryptApiKey(dto.apiKey) : undefined,
             baseUrl: dto.baseUrl ?? undefined,
             temperature: dto.temperature ?? undefined,

@@ -72,6 +72,7 @@ export class InternalService {
       name: row.name,
       provider: row.provider,
       modelId: row.modelId,
+      embedModel: row.embedModel, // [cs-round-045] 向量模型名,EmbeddingService 读
       apiKey, // 明文
       baseUrl: row.baseUrl,
       temperature: row.temperature,

@@ -46,6 +46,17 @@ export class CreateAiConfigDto {
   modelId!: string;
 
   /**
+   * 向量模型名(可选)— EmbeddingService 优先读 DB 此字段,
+   * 为空 fallback env EMBED_MODEL,再 fallback DEFAULT_MODEL(text-embedding-v4)。
+   * 同 provider 的 apiKey/baseUrl 通常可与 chat 共享;embedding 必须按类目配。
+   */
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  embedModel?: string;
+
+  /**
    * API key(明文,service 端加密入库;接口返回时脱敏)
    * 必填
    */

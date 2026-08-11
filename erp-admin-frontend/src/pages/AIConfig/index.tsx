@@ -46,6 +46,8 @@ export default function AIConfigPage() {
 
   const openEdit = (r: AIConfig) => {
     setEditing(r);
+    // [cs-round-045 fix] 后端 GET 现在直接返明文 apiKey,直接灌进表单即可。
+    // 用户能看到 key、可以编辑、不改保存等价"重新加密同一个值"(no-op)。
     form.setFieldsValue(r);
     setFormModalOpen(true);
   };
@@ -59,6 +61,11 @@ export default function AIConfigPage() {
   const handleOk = async () => {
     const v = await form.validateFields();
     if (editing) {
+      // [cs-round-045 fix] 编辑提交时:apiKey 空串视为"不修改"(对应 backend dto 的
+      // @IsOptional + @MinLength(1) 会拒空串),从 DTO 里删掉,后端走 undefined 不更新。
+      if (!v.apiKey) {
+        delete v.apiKey;
+      }
       updateMut.mutate({ id: editing.id, dto: v }, { onSuccess: () => closeFormModal() });
     } else {
       createMut.mutate(v, { onSuccess: () => closeFormModal() });

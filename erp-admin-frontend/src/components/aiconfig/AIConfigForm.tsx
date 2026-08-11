@@ -50,10 +50,18 @@ export function AIConfigForm({ form, editing }: AIConfigFormProps) {
       </Form.Item>
       <Form.Item
         name="modelId"
-        label="Model ID"
+        label="Model ID (对话)"
         rules={[{ required: true, message: '请输入 model id' }]}
+        tooltip="用于聊天 / RAG answer 生成的模型,如 qwen3.7-plus"
       >
         <Input placeholder="qwen3.7-plus" />
+      </Form.Item>
+      <Form.Item
+        name="embedModel"
+        label="Embed Model (向量)"
+        tooltip="用于 FAQ / 文档 embedding 的模型。留空 → 降级 env EMBED_MODEL,再降级 text-embedding-v4。同 provider 的 apiKey / baseUrl 可与对话模型共用,但 embedding 必须按类目配,跨类目 OpenAI compat mode 会 404"
+      >
+        <Input placeholder="text-embedding-v4 (留空走 env)" />
       </Form.Item>
       <Form.Item
         name="apiKey"
