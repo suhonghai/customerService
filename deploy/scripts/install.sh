@@ -96,14 +96,22 @@ log "公网 IP: $PUBLIC_IP"
 mkdir -p "$SSL_DIR" "$CERTBOT_WEBROOT" "$LOG_DIR"
 log "目录: SSL=$SSL_DIR, certbot webroot=$CERTBOT_WEBROOT, logs=$LOG_DIR"
 
-# ============== 1. 加载镜像 ==============
-step "1. 加载 5 个镜像"
+# ============== 1. 加载镜像(可选) ==============
+step "1. 加载镜像(可选 — 服务器本地 build 模式跳过)"
 
 cd "$IMAGES_DIR"
-docker load -i w11-erp-images.tar
-echo ""
-echo "已加载镜像:"
-docker images | grep -E 'w11-|mysql|chroma|certbot|nginx' | head -10
+if [ -f "$IMAGES_TAR" ]; then
+  docker load -i "$IMAGES_TAR"
+  echo ""
+  echo "已加载镜像:"
+  docker images | grep -E 'w11-|mysql|chroma|certbot|nginx' | head -10
+else
+  log "未找到 $IMAGES_TAR,跳过 docker load"
+  log "(服务器本地 build 模式 — 假定 build-images 已执行)"
+  echo ""
+  echo "当前已有镜像:"
+  docker images | grep -E 'w11-|mysql|chroma|certbot|nginx' | head -10
+fi
 
 # ============== 2. 第一次启动(nginx 会因证书缺失启动失败,正常) ==============
 step "2. 启动 mysql + chroma + backend + frontend + ai-cs-demo"
