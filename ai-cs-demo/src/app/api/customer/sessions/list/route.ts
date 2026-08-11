@@ -5,8 +5,8 @@ import { cookies } from 'next/headers';
  * GET /api/customer/sessions/list
  *
  * 浏览器 → 本 route(Next 自动带浏览器 cookie)
- * 本 route → backend /api/auth/me(用 Cookie 头转发浏览器 access_token cookie)
- *   → 拿到 userId
+ * 本 route → backend /api/cs/auth/me(用 Cookie 头转发浏览器 cs_access_token cookie)
+ *   → 拿到 cs_customer id
  * 本 route → backend /api/internal/cs/sessions?userId=X(带 INTERNAL_TOKEN)
  *   → 拿到该 userId 全部 cs_session
  *
@@ -15,7 +15,11 @@ import { cookies } from 'next/headers';
  * 设计要点:
  * - 浏览器无法直接调 /api/internal/cs/sessions(需要 INTERNAL_TOKEN)
  * - 本 route 是浏览器到 backend 的"代理 + 鉴权翻译层"
- * - 跨浏览器 / 隐身模式 / 清 localStorage 都不影响 — 只要浏览器 cookie 有 access_token 就能拉到
+ * - 跨浏览器 / 隐身模式 / 清 localStorage 都不影响 — 只要浏览器 cookie 有 cs_access_token 就能拉到
+ *
+ * 注:customer 端走 cs 鉴权路径 (/api/cs/auth/me,挂 CsJwtAuthGuard,读 cs_access_token cookie)。
+ *    之前误写 /api/auth/me(挂 JwtAuthGuard,读 access_token)→ cs_customer 没有 access_token → 401。
+ *    [cs-round-044] fix
  */
 
 const API_BASE =
@@ -37,8 +41,8 @@ export async function GET() {
     .join('; ');
 
   try {
-    // 1) backend /api/auth/me 拿 userId(用 Cookie 头让后端从 cookie 解析 JWT)
-    const meRes = await fetch(`${API_BASE}/api/auth/me`, {
+    // 1) backend /api/cs/auth/me 拿 userId(用 Cookie 头让后端从 cookie 解析 cs_customer JWT)
+    const meRes = await fetch(`${API_BASE}/api/cs/auth/me`, {
       headers: { Cookie: cookieHeader },
       cache: 'no-store',
     });
