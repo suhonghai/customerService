@@ -4,7 +4,7 @@
 # 与原版差异(2026-08-11):
 # 1. 后端 / 前端 / ai-cs-demo 不再暴露端口到 host(原 ${BACKEND_PORT} 等)
 #    —— 由新增的 nginx 容器统一对外(80/443),其他服务只在 docker network 内访问
-# 2. 新增 nginx 服务(反代 3 个子域):app.suhhai.cn / chat.suhhai.cn / api.suhhai.cn
+# 2. 新增 nginx 服务(反代 3 个子域):app.suhai.cn / chat.suhai.cn / api.suhai.cn
 # 3. 新增 certbot 服务:首次启动申请 Let's Encrypt 证书,后续 cron 自动续期
 # 4. 卷:
 #    - /opt/w11-erp/ssl → 证书存放(主机 → nginx 容器)
@@ -92,9 +92,9 @@ services:
       args:
         APP_ENV: production
         # Next.js 客户端代码读 process.env.NEXT_PUBLIC_* 走 build-time 内联,
-        # 必须烘焙正确的 https://api.suhhai.cn,否则浏览器 fetch 走相对路径 404
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.suhhai.cn}
-        NEXT_PUBLIC_CHROMA_URL: ${NEXT_PUBLIC_CHROMA_URL:-https://api.suhhai.cn}
+        # 必须烘焙正确的 https://api.suhai.cn,否则浏览器 fetch 走相对路径 404
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.suhai.cn}
+        NEXT_PUBLIC_CHROMA_URL: ${NEXT_PUBLIC_CHROMA_URL:-https://api.suhai.cn}
         NEXT_PUBLIC_INTERNAL_TOKEN: ${NEXT_PUBLIC_INTERNAL_TOKEN:-}
     image: w11-ai-cs-demo:production
     container_name: ${COMPOSE_PROJECT_NAME}-ai-cs-demo
@@ -109,7 +109,7 @@ services:
     # 2026-08-11:ai-cs-demo 在 prod 不暴露 host 端口
     # 通过 base docker-compose.yml 里 ports: "${AI_CS_PORT:-}:9529" 控制
     # prod .env.production 不设 AI_CS_PORT → 默认空 → 不绑 host
-    # docker network 内通过 ai-cs-demo:9529 访问,由 nginx 反代给 chat.suhhai.cn
+    # docker network 内通过 ai-cs-demo:9529 访问,由 nginx 反代给 chat.suhai.cn
     depends_on:
       - erp-admin-backend
       - chroma

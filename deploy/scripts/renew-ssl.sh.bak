@@ -13,7 +13,7 @@ SSL_DIR="/opt/w11-erp/ssl"
 CERTBOT_WEBROOT="/var/www/certbot"
 LOG_TAG="[renew-ssl]"
 
-DOMAINS=("app.suhhai.cn" "chat.suhhai.cn" "api.suhhai.cn")
+DOMAINS=("app.suhai.cn" "chat.suhai.cn" "api.suhai.cn")
 
 log()  { printf '%s %s %s\n' "$(date '+%F %T')" "$LOG_TAG" "$*"; }
 fail() { printf '%s %s ERROR: %s\n' "$(date '+%F %T')" "$LOG_TAG" "$*" >&2; }

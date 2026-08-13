@@ -74,8 +74,10 @@ services:
       CHROMA_URL: http://chroma:8000
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:?err - INTERNAL_TOKEN required}
       TZ: ${TZ:-Asia/Shanghai}
+    # 2026-08-11 改:默认不绑 host 端口(dev .env 设 AI_CS_PORT=9529 启用,
+    # prod 不设 → 不暴露 host,只 docker network 内部访问 + nginx 反代)
     ports:
-      - "${AI_CS_PORT:-9529}:9529"
+      - "${AI_CS_PORT:-}:9529"
     depends_on:
       chroma:
         condition: service_healthy

@@ -36,10 +36,10 @@ CERTBOT_WEBROOT="/var/www/certbot"
 LOG_DIR="/opt/w11-erp/logs"
 
 # ============== 域名配置 ==============
-PRIMARY_DOMAIN="suhhai.cn"
-APP_DOMAIN="app.suhhai.cn"
-CHAT_DOMAIN="chat.suhhai.cn"
-API_DOMAIN="api.suhhai.cn"
+PRIMARY_DOMAIN="suhai.cn"
+APP_DOMAIN="app.suhai.cn"
+CHAT_DOMAIN="chat.suhai.cn"
+API_DOMAIN="api.suhai.cn"
 ALL_DOMAINS=("$APP_DOMAIN" "$CHAT_DOMAIN" "$API_DOMAIN")
 
 # ============== 颜色 ==============

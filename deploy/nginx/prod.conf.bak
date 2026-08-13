@@ -2,9 +2,9 @@
 # W11 ERP Admin — nginx 反代配置(production,Ubuntu 24.04 部署)
 #
 # 三个 server block:
-#   - app.suhhai.cn  → erp-admin-frontend 容器(管理后台 SPA)
-#   - chat.suhhai.cn → ai-cs-demo 容器(Next.js 终端客服)
-#   - api.suhhai.cn  → erp-admin-backend 容器(REST API + WebSocket)
+#   - app.suhai.cn  → erp-admin-frontend 容器(管理后台 SPA)
+#   - chat.suhai.cn → ai-cs-demo 容器(Next.js 终端客服)
+#   - api.suhai.cn  → erp-admin-backend 容器(REST API + WebSocket)
 #
 # 证书:Let's Encrypt,通过 certbot 容器申请,挂在 /etc/nginx/ssl
 # HTTP-01 challenge:.well-known/acme-challenge 走 /var/www/certbot
@@ -31,7 +31,7 @@ map $http_upgrade $connection_upgrade {
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
-    server_name app.suhhai.cn chat.suhhai.cn api.suhhai.cn;
+    server_name app.suhai.cn chat.suhai.cn api.suhai.cn;
 
     # certbot ACME challenge webroot
     location /.well-known/acme-challenge/ {
@@ -51,16 +51,16 @@ server {
 }
 
 # ---------------------------------------------------------------------------
-# app.suhhai.cn — 运营后台前端(SPA)
+# app.suhai.cn — 运营后台前端(SPA)
 # ---------------------------------------------------------------------------
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name app.suhhai.cn;
+    server_name app.suhai.cn;
 
-    ssl_certificate     /etc/nginx/ssl/live/app.suhhai.cn/fullchain.pem;
-    ssl_certificate_key /etc/nginx/ssl/live/app.suhhai.cn/privkey.pem;
+    ssl_certificate     /etc/nginx/ssl/live/app.suhai.cn/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/live/app.suhai.cn/privkey.pem;
 
     # gzip
     gzip on;
@@ -106,17 +106,17 @@ server {
 }
 
 # ---------------------------------------------------------------------------
-# chat.suhhai.cn — AI 客服(Next.js)
+# chat.suhai.cn — AI 客服(Next.js)
 # Next.js 启动时 BIND hostname 检查可能挡,这里透传 Host
 # ---------------------------------------------------------------------------
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name chat.suhhai.cn;
+    server_name chat.suhai.cn;
 
-    ssl_certificate     /etc/nginx/ssl/live/chat.suhhai.cn/fullchain.pem;
-    ssl_certificate_key /etc/nginx/ssl/live/chat.suhhai.cn/privkey.pem;
+    ssl_certificate     /etc/nginx/ssl/live/chat.suhai.cn/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/live/chat.suhai.cn/privkey.pem;
 
     # 所有路径(含 /api → backend, /ws → backend WS)反代到 ai-cs-demo 容器
     location / {
@@ -137,16 +137,16 @@ server {
 }
 
 # ---------------------------------------------------------------------------
-# api.suhhai.cn — 后端 REST API(直接给前端调用,不直接面向用户)
+# api.suhai.cn — 后端 REST API(直接给前端调用,不直接面向用户)
 # ---------------------------------------------------------------------------
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name api.suhhai.cn;
+    server_name api.suhai.cn;
 
-    ssl_certificate     /etc/nginx/ssl/live/api.suhhai.cn/fullchain.pem;
-    ssl_certificate_key /etc/nginx/ssl/live/api.suhhai.cn/privkey.pem;
+    ssl_certificate     /etc/nginx/ssl/live/api.suhai.cn/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/live/api.suhai.cn/privkey.pem;
 
     location / {
         proxy_pass http://erp-admin-backend:3001;
