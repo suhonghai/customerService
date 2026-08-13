@@ -12,3 +12,13 @@ export const CS_TOKEN_TTL_SEC = 7 * 24 * 60 * 60; // 7d
 export const JWT_SECRET = process.env.JWT_SECRET ?? '';
 
 export const CS_ACCESS_TOKEN_COOKIE = 'cs_access_token';
+
+/**
+ * CS cookie domain:prod 用 `.suhhai.cn` 让 `chat.suhhai.cn` / `api.suhhai.cn` 共享;
+ * 本地 dev 不设(必须是 host-only,localhost / 127.0.0.1 不能带 domain)。
+ * [cs-round-048] 修 chat.suhhai.cn fetchMe 跨子域拿不到 cs_access_token cookie 的 bug。
+ */
+export const CS_COOKIE_DOMAIN: string | undefined =
+  process.env.NODE_ENV === 'production'
+    ? (process.env.CS_COOKIE_DOMAIN ?? '.suhhai.cn')
+    : undefined;

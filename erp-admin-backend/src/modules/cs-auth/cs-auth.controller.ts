@@ -14,7 +14,7 @@ import { CsAuthLoginDto, CsAuthService, CsCustomerPublicDto } from './cs-auth.se
 import { CsLoginDto } from './cs-auth.dto';
 import { CsJwtAuthGuard } from '../../common/guards/cs-jwt-auth.guard';
 import { CurrentUserCs } from '../../common/decorators/user-cs.decorator';
-import { CS_ACCESS_TOKEN_COOKIE, CS_TOKEN_TTL_SEC } from './cs-auth.constants';
+import { CS_ACCESS_TOKEN_COOKIE, CS_COOKIE_DOMAIN, CS_TOKEN_TTL_SEC } from './cs-auth.constants';
 
 /**
  * CsAuthController — 客服前台 /api/cs/auth/*
@@ -43,6 +43,7 @@ export class CsAuthController {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',
+      ...(CS_COOKIE_DOMAIN ? { domain: CS_COOKIE_DOMAIN } : {}),
       maxAge: CS_TOKEN_TTL_SEC * 1000,
     });
     return result;
@@ -64,7 +65,10 @@ export class CsAuthController {
   @HttpCode(200)
   @ApiOperation({ summary: 'C 端登出(清 cs_access_token cookie)' })
   async logout(@Res({ passthrough: true }) res: Response): Promise<{ success: true }> {
-    res.clearCookie(CS_ACCESS_TOKEN_COOKIE, { path: '/' });
+    res.clearCookie(CS_ACCESS_TOKEN_COOKIE, {
+      path: '/',
+      ...(CS_COOKIE_DOMAIN ? { domain: CS_COOKIE_DOMAIN } : {}),
+    });
     return { success: true };
   }
 }
