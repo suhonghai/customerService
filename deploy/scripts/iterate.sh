@@ -8,7 +8,8 @@
 #   3. mac: ssh 到服务器触发 update.sh(自动判断要 build 哪些服务 + 是否 reload nginx)
 #
 # 用法(在项目根目录跑):
-#   ./deploy/scripts/iterate.sh                            # 全自动(根据 git diff 自动判断)
+#   ./deploy/scripts/iterate.sh                            # 默认:mac 已推完就同步
+#   ./deploy/scripts/iterate.sh --force-sync               # mac 没新 commit 也强制同步(服务器漂移补救)
 #   ./deploy/scripts/iterate.sh --service erp-admin-backend # 强制 rebuild backend
 #   ./deploy/scripts/iterate.sh --migrate                  # 跑 prisma migrate deploy
 #   ./deploy/scripts/iterate.sh --reload-only              # 只同步 nginx conf + reload
@@ -59,9 +60,11 @@ DRY_RUN=0
 SERVICE_ARG=""
 MIGRATE=0
 RELOAD_ONLY=0
+FORCE_SYNC=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run)      DRY_RUN=1 ;;
+    --force-sync)   FORCE_SYNC=1 ;;
     --migrate)      MIGRATE=1 ;;
     --reload-only)  RELOAD_ONLY=1 ;;
     --service)      shift; SERVICE_ARG="${1:-}" ;;
@@ -118,15 +121,22 @@ fi
 AFTER=$(git rev-parse --short HEAD)
 log "新 HEAD: $AFTER"
 
-if [ "$BEFORE" = "$AFTER" ]; then
-  log "无新 commit,无需部署"
+if [ "$BEFORE" = "$AFTER" ] && [ "$FORCE_SYNC" != "1" ]; then
+  log "无新 commit,无需部署(用 --force-sync 强制同步服务器)"
   exit 0
 fi
 
-echo ""
-echo "本次提交:"
-git log --oneline "$BEFORE..$AFTER"
-echo ""
+if [ "$BEFORE" = "$AFTER" ] && [ "$FORCE_SYNC" = "1" ]; then
+  warn "mac 端无新 commit,但 --force-sync 触发,跳过 git diff 预览,直接同步文件"
+fi
+
+# 只有真正有新 commit 才显示本次提交列表
+if [ "$BEFORE" != "$AFTER" ]; then
+  echo ""
+  echo "本次提交:"
+  git log --oneline "$BEFORE..$AFTER"
+  echo ""
+fi
 
 # ============== 2. 预判要做什么 ==============
 step "2. 预判要做什么(给个预览)"
