@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# =============================================================================
+# W11 ERP Admin — 迭代更新脚本(代码层,git pull 模式)
+#
+# 跟 install.sh 的区别:install.sh 是首次冷部署,这个是后续迭代。
+# 只改代码 / 配置,不动服务器底层(不动 docker、nginx、certbot 安装)。
+#
+# 用法:
+#   sudo bash deploy/scripts/update.sh                     # 只 git pull,不重建
+#   sudo bash deploy/scripts/update.sh erp-admin-backend   # pull + build + 重启
+#   sudo bash deploy/scripts/update.sh --migrate           # pull + prisma migrate deploy(不 reset!)
+#   sudo bash deploy/scripts/update.sh --reload-only       # pull + nginx reload(零停机)
+#
+# ⚠️  永远不要在服务器跑 prisma migrate reset / db push --force-reset
+#     那会把真实数据 drop 掉。
+# =============================================================================
+
+set -euo pipefail
+
+# ============== 路径 ==============
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# ============== 颜色 ==============
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log()   { printf "${GREEN}[✓]${NC} %s\n" "$*"; }
+warn()  { printf "${YELLOW}[!]${NC} %s\n" "$*"; }
+fail()  { printf "${RED}[✗]${NC} %s\n" "$*" >&2; exit 1; }
+step()  { printf "\n${BLUE}===== %s =====${NC}\n" "$*"; }
+
+# ============== 0. 前置检查 ==============
+step "0. 前置检查"
+
+cd "$PROJECT_ROOT"
+
+# 必须在 git 仓库里(后续迭代要求)
+if [ ! -d ".git" ]; then
+  fail "当前目录不是 git 仓库。先跑 install.sh 的'git 化'步骤,或手动:
+  git init -b prod && git remote add origin <url> && git fetch && git checkout prod -- ."
+fi
+
+# 当前分支(后续只允许在 prod 跑)
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+log "当前分支: $BRANCH"
+if [ "$BRANCH" != "prod" ]; then
+  warn "当前不在 prod 分支(在 $BRANCH),pull 可能拉错代码"
+  read -rp "继续? [y/N] " ans
+  [[ "$ans" =~ ^[Yy]$ ]] || fail "用户中断"
+fi
+
+# 当前 commit
+BEFORE=$(git rev-parse --short HEAD)
+log "当前 HEAD: $BEFORE"
+
+# docker compose 在不在
+command -v docker >/dev/null 2>&1 || fail "docker 未安装"
+docker compose version >/dev/null 2>&1 || fail "docker compose plugin 未安装"
+
+# ============== 1. 解析参数 ==============
+RELOAD_ONLY=0
+MIGRATE=0
+SERVICES=()
+for arg in "$@"; do
+  case "$arg" in
+    --reload-only) RELOAD_ONLY=1 ;;
+    --migrate)     MIGRATE=1 ;;
+    -h|--help)
+      sed -n '2,20p' "$0"
+      exit 0
+      ;;
+    *) SERVICES+=("$arg") ;;
+  esac
+done
+
+# ============== 2. git pull ==============
+step "1. git pull origin $BRANCH"
+
+# --ff-only:拒绝非快进 merge,防止本地有未 push 的 commit 被覆盖
+if ! git pull --ff-only origin "$BRANCH" 2>&1; then
+  warn "git pull --ff-only 失败(可能有本地改动冲突)"
+  read -rp "强制覆盖本地未提交改动? [y/N] " ans
+  [[ "$ans" =~ ^[Yy]$ ]] || fail "用户中断"
+  git fetch origin "$BRANCH"
+  git reset --hard "origin/$BRANCH"
+fi
+
+AFTER=$(git rev-parse --short HEAD)
+if [ "$BEFORE" = "$AFTER" ]; then
+  log "无新 commit,无需进一步操作"
+  exit 0
+fi
+log "新 HEAD: $AFTER"
+
+# 显示改了哪些文件(给个概览)
+echo ""
+echo "本次提交:"
+git log --oneline "$BEFORE..$AFTER"
+echo ""
+echo "本次变更文件:"
+git diff --stat "$BEFORE..$AFTER"
+echo ""
+
+# ============== 3. 判断该跑什么 ==============
+step "2. 根据变更决定动作"
+
+CHANGED=$(git diff --name-only "$BEFORE..$AFTER")
+
+NEED_BUILD=0
+NEED_RELOAD=0
+NEED_RESTART=()
+NEED_MIGRATE=0
+
+# nginx 配置变更 → reload(零停机)
+if echo "$CHANGED" | grep -q '^deploy/nginx/'; then
+  warn "nginx 配置变更 → 将 reload(零停机)"
+  NEED_RELOAD=1
+fi
+
+# Dockerfile / package.json / 业务代码 → 重新 build + 重启对应服务
+SELF_BUILD_SERVICES=(erp-admin-backend erp-admin-frontend ai-cs-demo)
+for svc in "${SELF_BUILD_SERVICES[@]}"; do
+  if echo "$CHANGED" | grep -q "^$svc/"; then
+    NEED_BUILD=1
+    NEED_RESTART+=("$svc")
+    log "$svc 有代码改动 → 将 rebuild + restart"
+  fi
+done
+
+# prisma schema 变更 → 跑 migrate deploy(绝不 reset)
+if echo "$CHANGED" | grep -q '^erp-admin-backend/prisma/schema.prisma'; then
+  warn "Prisma schema 变更 → 将跑 prisma migrate deploy(不 reset)"
+  NEED_MIGRATE=1
+  # 自动加入 backend 到 rebuild 列表(新 schema 要在镜像里才生效)
+  if [[ ! " ${NEED_RESTART[*]} " =~ " erp-admin-backend " ]]; then
+    NEED_RESTART+=("erp-admin-backend")
+    NEED_BUILD=1
+  fi
+fi
+
+# 用户显式传 service 参数,覆盖自动判断
+if [ "${#SERVICES[@]}" -gt 0 ]; then
+  log "用户指定服务: ${SERVICES[*]}"
+  NEED_BUILD=1
+  NEED_RESTART=("${SERVICES[@]}")
+fi
+
+# --migrate 强制跑
+if [ "$MIGRATE" = "1" ]; then
+  NEED_MIGRATE=1
+fi
+
+# ============== 4. 跑 prisma migrate deploy ==============
+if [ "$NEED_MIGRATE" = "1" ]; then
+  step "3. prisma migrate deploy(只 apply,不 reset)"
+
+  # 必须先有 backend 容器在跑
+  if ! docker ps --format '{{.Names}}' | grep -q 'w11-erp-prod-erp-admin-backend'; then
+    fail "backend 容器未运行,先 up 它再 migrate"
+  fi
+
+  docker compose --env-file .env.production \
+    -f docker-compose.yml \
+    -f docker-compose.prod.yml \
+    -p w11-erp-prod \
+    exec erp-admin-backend \
+    npx prisma migrate deploy
+
+  log "migrate deploy 完成"
+fi
+
+# ============== 5. docker compose build ==============
+if [ "$NEED_BUILD" = "1" ] && [ "${#NEED_RESTART[@]}" -gt 0 ]; then
+  step "4. docker compose build ${NEED_RESTART[*]}"
+
+  docker compose --env-file .env.production \
+    -f docker-compose.yml \
+    -f docker-compose.prod.yml \
+    -p w11-erp-prod \
+    build "${NEED_RESTART[@]}"
+
+  log "build 完成"
+fi
+
+# ============== 6. restart ==============
+if [ "${#NEED_RESTART[@]}" -gt 0 ]; then
+  step "5. up -d --no-build --no-deps ${NEED_RESTART[*]}"
+
+  # --no-deps:不连带重启依赖(mysql / chroma),避免误重启
+  # --no-build:用刚 build 好的镜像,不重新 build
+  docker compose --env-file .env.production \
+    -f docker-compose.yml \
+    -f docker-compose.prod.yml \
+    -p w11-erp-prod \
+    up -d --no-build --no-deps "${NEED_RESTART[@]}"
+
+  log "${NEED_RESTART[*]} 已重启"
+fi
+
+# ============== 7. nginx reload ==============
+if [ "$NEED_RELOAD" = "1" ]; then
+  step "6. nginx -s reload"
+
+  if docker ps --format '{{.Names}}' | grep -q 'w11-erp-prod-nginx'; then
+    docker exec w11-erp-prod-nginx nginx -t && \
+      docker exec w11-erp-prod-nginx nginx -s reload
+    log "nginx 已 reload(零停机)"
+  else
+    warn "nginx 容器未运行,跳过 reload"
+  fi
+fi
+
+# ============== 8. 健康检查 ==============
+step "7. 健康检查"
+
+sleep 3
+echo ""
+echo "=== 容器状态 ==="
+docker compose --env-file .env.production \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  -p w11-erp-prod \
+  ps
+echo ""
+
+echo "=== 关键端点 ==="
+for url in \
+  "https://app.suhhai.cn/" \
+  "https://chat.suhhai.cn/" \
+  "https://api.suhhai.cn/api/health/live" \
+  "https://api.suhhai.cn/api/health/ready"; do
+  code=$(curl -k -o /dev/null -s -w "%{http_code}" --max-time 5 "$url" 2>&1 || echo "FAIL")
+  printf "  %-50s → %s\n" "$url" "$code"
+done
+
+step "✓ 更新完成"
+echo ""
+echo "📌 提交记录(本次):"
+git log --oneline -1
+echo ""
+echo "📋 后续:"
+echo "  看日志:    cd /opt/w11-erp && docker compose -p w11-erp-prod logs -f --tail=50"
+echo "  回滚代码:  cd /opt/w11-erp && git reset --hard $BEFORE && deploy/scripts/update.sh"
+echo ""
