@@ -72,51 +72,97 @@ NEED_BUILD=()
 SELF_BUILD_SERVICES=(erp-admin-backend erp-admin-frontend ai-cs-demo)
 
 # nginx conf → reload
+# 用 hash 对比,不用 mtime(rsync 会刷新所有 mtime)
 NEED_RELOAD=0
 NGINX_CONF="deploy/nginx/prod.conf"
-# 没法 git diff(服务器没 git),靠 mtime 对比 last deploy marker
 LAST_DEPLOY_MARKER="/opt/w11-erp/.last_deploy"
+CURRENT_NGINX_HASH=$(sha256sum "$NGINX_CONF" 2>/dev/null | cut -c1-32)
 if [ -f "$LAST_DEPLOY_MARKER" ]; then
-  if [ "$NGINX_CONF" -nt "$LAST_DEPLOY_MARKER" ]; then
+  LAST_NGINX_HASH=$(cat "$LAST_DEPLOY_MARKER" 2>/dev/null || echo "")
+  if [ "$CURRENT_NGINX_HASH" != "$LAST_NGINX_HASH" ] && [ -n "$CURRENT_NGINX_HASH" ]; then
     NEED_RELOAD=1
-    warn "nginx 配置 mtime 新于上次部署 → 将 reload"
+    warn "nginx 配置变了($LAST_NGINX_HASH → $CURRENT_NGINX_HASH)→ 将 reload"
   fi
 else
-  # 首次跑,nginx 配了跟容器一起 up,先不动
-  log "首次部署,跳过 nginx reload 检测"
+  log "首次部署,初始化 nginx marker(不 reload)"
+  echo "$CURRENT_NGINX_HASH" > "$LAST_DEPLOY_MARKER"
 fi
 
 # 各服务代码变更
+# 用 hash 而非 mtime 判断:rsync 后所有 mtime 都被刷新,会全部误判为"改动"。
+# 把每次成功 build 的文件指纹存到 marker,下次对比。
+NEED_FIRST_INIT=0
 for svc in "${SELF_BUILD_SERVICES[@]}"; do
-  # 简单粗暴:rsync 后整个 svc 目录 mtime 都更新;用文件存在 + src 文件修改时间判断
-  # 更稳:维护一个 .last_build_<svc> marker
   LAST_BUILD="/opt/w11-erp/.last_build_${svc//\//_}"
-  if [ -f "$LAST_BUILD" ]; then
-    # 检查 svc 目录里有没有比 marker 新的文件
-    if find "$svc" -type f -newer "$LAST_BUILD" -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/dist/*' 2>/dev/null | head -1 | grep -q .; then
-      NEED_BUILD+=("$svc")
-      log "$svc 有代码改动 → 将 rebuild"
-    fi
-  else
-    # 首次 build
+  # 首次跑(没 marker):不重建,只初始化 marker
+  if [ ! -f "$LAST_BUILD" ]; then
+    NEED_FIRST_INIT=1
+    log "$svc 无 marker,首次跑 → 初始化 marker(不重建)"
+    continue
+  fi
+  # 用排除规则计算 svc 目录的指纹(排除掉构建产物)
+  CURRENT_HASH=$(find "$svc" -type f \
+    -not -path '*/node_modules/*' \
+    -not -path '*/.next/*' \
+    -not -path '*/dist/*' \
+    -not -path '*/.turbo/*' \
+    -not -name '*.tsbuildinfo' \
+    -not -path '*/coverage/*' \
+    2>/dev/null | sort | xargs sha256sum 2>/dev/null | sha256sum | cut -c1-32)
+  if [ -z "$CURRENT_HASH" ]; then
+    warn "$svc 指纹计算失败,跳过(可能是空目录)"
+    continue
+  fi
+  LAST_HASH=$(cat "$LAST_BUILD" 2>/dev/null || echo "")
+  if [ "$CURRENT_HASH" != "$LAST_HASH" ]; then
     NEED_BUILD+=("$svc")
-    log "$svc 未 build 过 → 将 build"
+    log "$svc 代码指纹变了($LAST_HASH → $CURRENT_HASH)→ 将 rebuild"
   fi
 done
 
+# 首次初始化:扫一遍所有服务,把当前 hash 写进 marker
+if [ "$NEED_FIRST_INIT" = "1" ]; then
+  step "1.5 首次初始化 marker(跳过 build)"
+  for svc in "${SELF_BUILD_SERVICES[@]}"; do
+    LAST_BUILD="/opt/w11-erp/.last_build_${svc//\//_}"
+    if [ ! -f "$LAST_BUILD" ]; then
+      HASH=$(find "$svc" -type f \
+        -not -path '*/node_modules/*' \
+        -not -path '*/.next/*' \
+        -not -path '*/dist/*' \
+        -not -path '*/.turbo/*' \
+        -not -name '*.tsbuildinfo' \
+        -not -path '*/coverage/*' \
+        2>/dev/null | sort | xargs sha256sum 2>/dev/null | sha256sum | cut -c1-32)
+      if [ -n "$HASH" ]; then
+        echo "$HASH" > "$LAST_BUILD"
+        log "已初始化 marker: $svc → $HASH"
+      fi
+    fi
+  done
+  # 首次初始化时,如果用户没指定 service,就不 build
+  if [ "${#SERVICES[@]}" -eq 0 ] && [ "$RELOAD_ONLY" != "1" ]; then
+    log "首次跑完成初始化,不做 build。需要重建请显式指定: update.sh <service>"
+    SERVICES=()
+    NEED_BUILD=()
+  fi
+fi
+
 # prisma schema → migrate
+# 用 hash 对比
 NEED_MIGRATE=0
 PRISMA_SCHEMA="erp-admin-backend/prisma/schema.prisma"
 LAST_MIGRATE="/opt/w11-erp/.last_migrate"
+CURRENT_SCHEMA_HASH=$(sha256sum "$PRISMA_SCHEMA" 2>/dev/null | cut -c1-32)
 if [ -f "$LAST_MIGRATE" ]; then
-  if [ "$PRISMA_SCHEMA" -nt "$LAST_MIGRATE" ]; then
+  LAST_SCHEMA_HASH=$(cat "$LAST_MIGRATE" 2>/dev/null || echo "")
+  if [ "$CURRENT_SCHEMA_HASH" != "$LAST_SCHEMA_HASH" ] && [ -n "$CURRENT_SCHEMA_HASH" ]; then
     NEED_MIGRATE=1
-    warn "Prisma schema mtime 新于上次 migrate → 将跑 migrate deploy"
+    warn "Prisma schema 变了($LAST_SCHEMA_HASH → $CURRENT_SCHEMA_HASH)→ 将跑 migrate deploy"
   fi
 else
-  # 首次跑,可能需要初始 migrate
-  NEED_MIGRATE=1
-  log "首次检测,跑一次 migrate deploy(确保 schema 同步)"
+  log "首次检测,初始化 schema marker(不跑 migrate)"
+  echo "$CURRENT_SCHEMA_HASH" > "$LAST_MIGRATE"
 fi
 
 # 用户显式传 service,覆盖自动判断
@@ -168,6 +214,7 @@ if [ "$NEED_MIGRATE" = "1" ]; then
 
   touch "$LAST_MIGRATE"
   log "migrate deploy 完成"
+  echo "$CURRENT_SCHEMA_HASH" > "$LAST_MIGRATE"
 fi
 
 # ============== 5. docker compose build ==============
@@ -181,10 +228,20 @@ if [ "${#NEED_BUILD[@]}" -gt 0 ]; then
 
   log "build 完成"
 
-  # 更新 marker
+  # 更新 marker(写入新 hash)
   for svc in "${NEED_BUILD[@]}"; do
     LAST_BUILD="/opt/w11-erp/.last_build_${svc//\//_}"
-    touch "$LAST_BUILD"
+    NEW_HASH=$(find "$svc" -type f \
+      -not -path '*/node_modules/*' \
+      -not -path '*/.next/*' \
+      -not -path '*/dist/*' \
+      -not -path '*/.turbo/*' \
+      -not -name '*.tsbuildinfo' \
+      -not -path '*/coverage/*' \
+      2>/dev/null | sort | xargs sha256sum 2>/dev/null | sha256sum | cut -c1-32)
+    if [ -n "$NEW_HASH" ]; then
+      echo "$NEW_HASH" > "$LAST_BUILD"
+    fi
   done
 fi
 
@@ -208,13 +265,13 @@ if [ "$NEED_RELOAD" = "1" ]; then
     docker exec w11-erp-prod-nginx nginx -t && \
       docker exec w11-erp-prod-nginx nginx -s reload
     log "nginx 已 reload(零停机)"
-    touch "$LAST_DEPLOY_MARKER"
+    echo "$CURRENT_NGINX_HASH" > "$LAST_DEPLOY_MARKER"
   else
     warn "nginx 容器未运行,跳过 reload"
   fi
 else
   # 即使这次没 reload,也更新 marker(让下次能正确对比)
-  touch "$LAST_DEPLOY_MARKER"
+  echo "$CURRENT_NGINX_HASH" > "$LAST_DEPLOY_MARKER"
 fi
 
 # ============== 8. 健康检查 ==============
