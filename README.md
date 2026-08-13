@@ -297,29 +297,73 @@ graph TB
 
 ## 🚢 部署
 
-3 套环境分别走不同流程(test 由 CI 自动跑):
+### 首次冷部署(`install.sh`)
 
-| 环境           | 触发方式                               | 部署位置          | 配置                      |
-| -------------- | -------------------------------------- | ----------------- | ------------------------- |
-| **test**       | GitHub Actions 自动(pr-tests workflow) | CI Runner         | `docker-compose.test.yml` |
-| **uat**        | 手动 `make deploy ENV=uat`             | 腾讯云 UAT 服务器 | `docker-compose.uat.yml`  |
-| **production** | 手动 `make deploy ENV=production`      | 腾讯云生产服务器  | `docker-compose.prod.yml` |
+适用:从 0 到 1 把项目部署到全新服务器(Ubuntu 24.04)。
 
-部署脚本位置:`deploy/scripts/`:
+服务器端运行(`/opt/w11-erp` 是空目录):
 
-| 脚本                    | 用途                                              |
-| ----------------------- | ------------------------------------------------- |
-| `build-all.sh`          | 本地构建 backend + frontend + ai-cs-demo 三个镜像 |
-| `deploy.sh`             | 一键推到服务器并部署                              |
-| `health-check.sh`       | 健康检查 + 报警                                   |
-| `backup-mysql.sh`       | MySQL 定时备份                                    |
-| `backup-files.sh`       | 文件存储备份                                      |
-| `restore-mysql.sh`      | MySQL 恢复                                        |
-| `logrotate.sh`          | 日志轮转                                          |
-| `ssl-renew-watchdog.sh` | SSL 证书续期监控                                  |
-| `alert.sh`              | 报警脚本                                          |
+```bash
+sudo bash deploy/scripts/install.sh
+```
 
-**部署前置清单**详见 `deploy/checklist.md`。**部署变更记录**详见 `deploy/CHANGELOG.md`。
+自动完成:
+
+1. 前置检查(docker / DNS / 公网 IP)
+2. 加载 5 个镜像(或跳过 — 服务器本地 build 模式)
+3. 启动 mysql + chroma + backend + frontend + ai-cs-demo
+4. 启动 nginx(临时配置,只 80 端口接收 ACME challenge)
+5. 申请 Let's Encrypt 证书(3 个子域名)
+6. 重启 nginx 加载证书
+7. 安装 SSL 续期 cron(每天 3:30)
+8. 健康检查 + 打印访问 URL
+
+### 迭代部署(`iterate.sh` + `update.sh`)⭐ 日常用
+
+适用:代码改完要部署 / 修个 bug / 调个 nginx conf。
+
+**mac 端跑一行**(项目根目录):
+
+```bash
+./deploy/scripts/iterate.sh                       # mac 已 commit 就同步
+./deploy/scripts/iterate.sh --force-sync          # 服务器漂移补救,强制重同步
+./deploy/scripts/iterate.sh --service erp-admin-backend   # 强制 rebuild backend
+./deploy/scripts/iterate.sh --migrate             # 改 Prisma schema 后跑
+./deploy/scripts/iterate.sh --reload-only         # 只同步 nginx + reload
+./deploy/scripts/iterate.sh --dry-run             # 只显示会做什么
+```
+
+iterate.sh 自动完成:
+
+1. mac `git pull origin prod`(从 GitHub 拉最新)
+2. mac `rsync` 增量文件到服务器 `/opt/w11-erp/`(走 SSH,几 MB/s)
+3. mac ssh 远程触发服务器 `update.sh`
+
+服务器端 `update.sh` 自动完成:
+
+- 检测每个服务的代码指纹(sha256,排除 `node_modules`/`.next`/`dist`)
+- 检测 nginx conf 变更 → `nginx -s reload`(零停机)
+- 检测 Prisma schema 变更 → `prisma migrate deploy`(绝不 reset)
+- 备份当前镜像到 `/opt/w11-erp/backups/`(回滚保险,保留最近 5 次)
+- rebuild 改动的服务 + restart(`--no-deps` 不连带重启 mysql/chroma)
+- 健康检查 4 个端点
+
+### 部署脚本清单
+
+| 脚本                 | 谁跑    | 用途                                                 |
+| -------------------- | ------- | ---------------------------------------------------- |
+| `install.sh`         | 服务器  | 首次冷部署(docker + certbot + nginx + cron)          |
+| `iterate.sh`         | **mac** | 迭代部署入口(git pull + rsync + ssh 触发 update.sh)  |
+| `update.sh`          | 服务器  | 迭代部署执行端(hash 检测 + build + restart + reload) |
+| `renew-ssl.sh`       | 服务器  | SSL 证书自动续期(cron 每天 3:30)                     |
+| `update.sh.git-pull` | (备用)  | 早期"服务器自拉 git"版本,保留作 fallback             |
+
+### 关键原则
+
+- **mac = source of truth**:`.env.production` / 业务代码 / nginx conf 全部从 mac 同步
+- **服务器不连 GitHub**:HTTPS 不稳 + 不需要;git 逻辑都在 mac 跑
+- **`.env.production` 不进 git**:rsync 排除掉;服务器上原本的 `.env.production` 不会被覆盖
+- **绝不跑 `prisma migrate reset`**:服务器 update.sh 只跑 `migrate deploy`(只 apply 不 drop)
 
 ---
 
