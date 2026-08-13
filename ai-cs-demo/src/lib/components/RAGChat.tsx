@@ -8,7 +8,7 @@ import { useChatState } from '@/hooks/use-chat-state';
 import { useRealtime, useRealtimeDisconnectOnUnmount } from '@/hooks/use-realtime';
 import { useAutoResumeStreaming } from '@/hooks/use-auto-resume-streaming';
 import { getVisitorId } from '@/lib/visitor';
-import { getClientUserId, getClientCustomerId, logoutRequest } from '@/lib/auth';
+import { getClientUserId, getClientCustomerId } from '@/lib/auth';
 import { getErpAdminClient } from '@/lib/erp-admin-client';
 import { scanStreamError } from '@/lib/stream-error-scanner';
 import { refetchSessionHistory } from '@/lib/refetch-history';
@@ -518,10 +518,12 @@ export function RAGChat() {
               type="button"
               onClick={async () => {
                 try {
-                  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-                  await logoutRequest(apiBase);
+                  // [cs-round-049] 改走 BFF /api/cs/auth/logout,
+                  // 绕开 chat.suhhai.cn → api.suhhai.cn 跨域 POST 写 Set-Cookie
+                  // 被 SameSite=Lax 拒收的 bug。
+                  await fetch('/api/cs/auth/logout', { method: 'POST', credentials: 'include' });
                 } catch {
-                  // 即便 logout 接口失败,也清本地 cookie + 跳 login
+                  // 即便 BFF 失败,也清本地 cookie + 跳 login
                 }
                 if (typeof document !== 'undefined') {
                   document.cookie = 'v1_user_info=; Max-Age=0; path=/';
