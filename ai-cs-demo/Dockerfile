@@ -71,6 +71,11 @@ RUN npm config set registry https://registry.npmmirror.com \
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/scripts ./scripts
+# [cs-round-050] MCP server 子进程(跑 scripts/mcp-servers/customer-service.ts)
+# dynamic import('../../src/lib/api-client') 需 /app/src/lib/* 可用,否则
+# escalate_to_human / create_ticket 等工具 dispatch 抛
+# "Cannot find module '/app/src/lib/api-client'"。
+COPY --from=builder /app/src ./src
 COPY next.config.ts ./
 
 EXPOSE 9529
