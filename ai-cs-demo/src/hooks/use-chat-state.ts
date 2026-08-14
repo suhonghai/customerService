@@ -78,6 +78,10 @@ export function useChatState({
   useEffect(() => {
     // cs-round-021:切会话(URL 变化 → activeId 变)才清空 dedupe state;
     // StrictMode 同 activeId 重跑不清空,dedupe 才能拦住重复 fetch。
+    // [cs-round-054] 同时保留「旧 prev」给下面的 prevIsOtherBackend 判断用 —
+    //   effect 内先把 prev 快照存到 prevActiveIdBeforeUpdate,再写 ref,
+    //   否则 prevActiveIdRef.current 已经被 activeId 覆盖,下面的判断就失真。
+    const prevActiveIdBeforeUpdate = prevActiveIdRef.current;
     if (prevActiveIdRef.current !== activeId) {
       fetchedSessionIdsRef.current.clear();
       inFlightSessionIdRef.current = null;
@@ -115,13 +119,35 @@ export function useChatState({
 
     let cancelled = false;
     setHistoryLoading(true);
-    // cs-round-020:切会话先清空 messages(右框不能残留上一会话消息)。
-    // 之前是只 setBackendSessionId,useChat 的 messages 常驻 → fetch /history 完成后
-    // diff/append 把上一会话 + 当前会话的消息合并显示(A 在上 B 在下)。
-    // setMessages([]) 后 fetch 回来 setMessages(restored) 直接替换 — diff/append
-    // 仍保留作 streaming metadata 同步的 defense-in-depth。
-    // 闪烁网关由 historyLoading 承担(ChatView 显示「正在加载…」)。
-    setMessages([]);
+    // [cs-round-054] 切会话清空 messages 的判断条件收紧:
+    //   - 仅当「上一个 activeId 是已知的 backendId(正整数)」且「与当前不同」时才清空
+    //     — 即用户从 A 会话切到 B 会话(A、B 都是已有 backendId)。
+    //   - 其他情况**不**清空:
+    //     a) prevActiveId === undefined     : 首次 mount(SSR/hydration),useChat state 是初始值,不必清
+    //     b) prevActiveId === null          : 从 draft 态(刚刚 + 新会话)切到 backendId
+    //                                       — useChat 内部已经在 streaming(刚 sendMessage push 了 user message),
+    //                                         清空会把 user message 抹掉 + 跟 SSE chunks race
+    //                                         → 用户看不到自己发的气泡(refresh 才看到,截图 9/10)。
+    //     c) prevActiveId 是 tempId(负数)    : createSession 同步路径留下的中间态,
+    //                                       onCommit 把 URL 切到 backendId;同上 useChat 正在 streaming,
+    //                                       不能清空。
+    //   - 这些情况下保留 useChat state,fetch /history 回来后用 diff/append
+    //     (line ~163)合并 — 已有的 user message 不丢,新拉到的 assistant message 也不会被覆盖。
+    const prev = prevActiveIdBeforeUpdate;
+    const prevIsOtherBackend =
+      typeof prev === 'string' &&
+      /^\d+$/.test(prev) &&
+      Number(prev) > 0 &&
+      prev !== activeId;
+    if (prevIsOtherBackend) {
+      // cs-round-020:切会话先清空 messages(右框不能残留上一会话消息)。
+      // 之前是只 setBackendSessionId,useChat 的 messages 常驻 → fetch /history 完成后
+      // diff/append 把上一会话 + 当前会话的消息合并显示(A 在上 B 在下)。
+      // setMessages([]) 后 fetch 回来 setMessages(restored) 直接替换 — diff/append
+      // 仍保留作 streaming metadata 同步的 defense-in-depth。
+      // 闪烁网关由 historyLoading 承担(ChatView 显示「正在加载…」)。
+      setMessages([]);
+    }
     setBackendSessionId(backendIdNum);
 
     void (async () => {
@@ -141,15 +167,20 @@ export function useChatState({
 
         if (restored.length === 0) {
           // 后端空 → 清空前端 messages(draft / 全新会话场景)
-          setMessages([]);
+          // 但**保留**本地已经在 streaming 的消息:useChat 内部 pushMessage 进去的
+          // user / 部分 assistant chunks 是网络竞速产物,清掉 = 截图 9/10 bug 复发。
+          // 仅当本地也空(draft / 全新会话)时才清。
+          setMessages((prev) => (prev.length === 0 ? [] : prev));
           return;
         }
         setMessages((prev) => {
           const localIds = new Set(prev.map((m) => String(m.id)));
           const newFromBackend = restored.filter((m) => !localIds.has(String(m.id)));
           if (newFromBackend.length === 0) {
-            // 后端消息已全部在本地(罕见:刚刚 streaming 的 chunk)→ 仅替换以同步 metadata
-            return restored;
+            // 后端消息已全部在本地(常见:刚刚 streaming 的 chunk 已经写到 state,
+            // /history 拿到的是 streaming 期间的快照)→ 不覆盖,保留 prev(可能比
+            // restored 更完整 — restored 是 GET 时点的快照,prev 是持续累加的 live)。
+            return prev;
           }
           return [...prev, ...newFromBackend];
         });

@@ -139,8 +139,12 @@ describe('useChatState — cs-round-013 (history fetch 是唯一加载路径)', 
     expect(merged[1].id).toBe('2'); // 后端 assistant 被 append
   });
 
-  it('history 返回空 messages → setMessages([])', async () => {
-    // 场景:activeId=88,后端 0 条 → 清空前端 messages(draft 后创建新会话)
+  it('history 返回空 messages → 视本地 prev 状态决定', async () => {
+    // [cs-round-054] 场景:activeId=88,后端 0 条 →
+    //   - 本地 prev 空(draft / 全新会话 / 刷新) → 清空 messages([])
+    //   - 本地 prev 非空(正在 streaming — useChat pushMessage 进去的 user msg)
+    //     → 保留 prev,不要把 streaming 中的 user / partial assistant 抹掉
+    //     (截图 9/10 bug 复发)
     const setMessages = vi.fn();
     const setMessagesArg = setMessages as unknown as React.Dispatch<React.SetStateAction<UIMessage[]>>;
     vi.spyOn(global, 'fetch').mockResolvedValue(
@@ -156,22 +160,27 @@ describe('useChatState — cs-round-013 (history fetch 是唯一加载路径)', 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));
     });
-    // 至少有一次 setMessages 调用(空数组)
+    // 至少有一次 setMessages 调用
     expect(setMessages).toHaveBeenCalled();
-    const lastCall = setMessages.mock.calls[setMessages.mock.calls.length - 1];
-    // 最后一次调用可能是直接传 [] 或 updater([]) 返 [] — 检查任意一次返 [] 的调用
-    const passedEmpty = setMessages.mock.calls.some((c) => {
-      if (Array.isArray(c[0])) return c[0].length === 0;
-      if (typeof c[0] === 'function') {
-        const result = (c[0] as (prev: UIMessage[]) => UIMessage[])([
-          { id: 'x', role: 'user', parts: [] } as unknown as UIMessage,
-        ]);
-        return Array.isArray(result) && result.length === 0;
-      }
-      return false;
-    });
-    expect(passedEmpty).toBe(true);
-    void lastCall;
+    // 找空 history 分支的 updater(setMessages((prev) => prev.length === 0 ? [] : prev))
+    const callsWithFn = setMessages.mock.calls.filter(
+      (c) => typeof c[0] === 'function',
+    );
+    expect(callsWithFn.length).toBeGreaterThan(0);
+    // 抽最后一次空 history 相关 updater(可能在流式或合并的 updater 中)
+    const updater = callsWithFn[callsWithFn.length - 1][0] as (prev: UIMessage[]) => UIMessage[];
+    // 1) prev 空 → 返 [](清空场景)
+    expect(updater([])).toEqual([]);
+    // 2) prev 有 user message(模拟正在 streaming)→ 保留,绝不抹掉
+    const streamingPrev: UIMessage[] = [
+      {
+        id: 'x',
+        role: 'user',
+        parts: [{ type: 'text', text: '优惠券怎么用?' }],
+        metadata: {},
+      } as unknown as UIMessage,
+    ];
+    expect(updater(streamingPrev)).toEqual(streamingPrev);
   });
 
   it('setHistoryLoading 在 fetch 开始 → 完成被调 true → false', async () => {
