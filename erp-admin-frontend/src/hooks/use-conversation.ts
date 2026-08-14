@@ -54,7 +54,19 @@ export interface UseConversationApi {
 function resolveWsUrl(): string {
   if (typeof window === 'undefined') return '';
   const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:3001/realtime`;
+  const wsProto = protocol === 'https:' ? 'wss:' : 'ws:';
+  // [cs-round-052] 之前写死 `${hostname}:3001/realtime`,prod 模式下 3001 是
+  // backend 容器内端口,docker-compose.prod.yml 只 expose、不 ports,host 上根本
+  // 监听不到 → 浏览器连 app.suhhai.cn:3001 直接 TCP refused → "实时未连接
+  // (降级 REST)"。
+  // dev 模式 (make dev-web 起 Vite 5173 + 本机 Node 3001):3001 直监听 → 走
+  // hostname:3001 直连后端,无需 nginx。
+  // prod 模式 (docker compose 全容器 + nginx):走 api.suhhai.cn(nginx 已配
+  // Upgrade 头 + 反代到 backend:3001,Cookie 同 eTLD+1 自动带上)。
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `${wsProto}//${hostname}:3001`;
+  }
+  return `${wsProto}//api.suhhai.cn`;
 }
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
