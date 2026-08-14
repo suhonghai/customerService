@@ -11,6 +11,11 @@ ARG BUILD_ENV=production
 
 FROM node:20-alpine AS builder
 
+# [cs-round-051] VITE_INTERNAL_TOKEN 在 build-time 烘焙进 JS,
+# 必须从 compose 传 build-arg,否则 frontend request.ts 拿不到 token,
+# backend InternalGuard 抛 "Internal token 无效"。
+ARG VITE_INTERNAL_TOKEN
+
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
@@ -28,7 +33,11 @@ ARG BUILD_ENV
 ENV NODE_ENV=${BUILD_ENV}
 
 # 优先跑 build:${BUILD_ENV},兜底走 build(若 BUILD_ENV=production 直接命中主命令)
-RUN pnpm run build:${BUILD_ENV} || pnpm run build
+# 同时把 VITE_INTERNAL_TOKEN 写进 .env.production(双保险):
+#   1. process.env 注入:让 vite 转译时直接把 import.meta.env.VITE_INTERNAL_TOKEN 替换成值
+#   2. .env.production 文件:让 vite.config.ts 的 loadEnv(mode) 也能读到(用于 vite.config.ts 内部引用)
+RUN echo "VITE_INTERNAL_TOKEN=${VITE_INTERNAL_TOKEN}" > .env.production \
+ && VITE_INTERNAL_TOKEN=${VITE_INTERNAL_TOKEN} pnpm run build:${BUILD_ENV} || VITE_INTERNAL_TOKEN=${VITE_INTERNAL_TOKEN} pnpm run build
 
 # -----------------------------------------------------------------------------
 # runner:nginx:stable-alpine,拷 dist 到 /usr/share/nginx/html,加载自定义 nginx.conf

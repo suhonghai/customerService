@@ -72,6 +72,9 @@ services:
       dockerfile: Dockerfile
       args:
         BUILD_ENV: production
+        # [cs-round-051] VITE_INTERNAL_TOKEN 必须跟 backend INTERNAL_TOKEN 一致,
+        # frontend request.ts 加 X-Internal-Token,backend InternalGuard 校验相等。
+        VITE_INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
     image: w11-frontend:production
     container_name: ${COMPOSE_PROJECT_NAME}-frontend
     env_file:
