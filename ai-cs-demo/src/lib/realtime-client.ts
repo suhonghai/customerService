@@ -60,7 +60,16 @@ export function connectRealtime(sessionKey: string): Socket {
   const url =
     process.env.NEXT_PUBLIC_WS_URL ||
     (typeof window !== 'undefined'
-      ? `${window.location.protocol}//${window.location.hostname}:3001`
+      ? // [cs-round-053] 跟 frontend use-conversation.ts 同根因:prod 模式下
+        // 3001 是 backend 容器内端口,docker-compose.prod.yml 只 expose 不 ports,
+        // host 上不监听 → 浏览器连 chat.suhhai.cn:3001 直接 refused → 实时推送
+        // 全断,只能靠刷新 fallback。修法:dev 走 hostname:3001 直连(prod 无
+        // dev 直连),prod 走 api.suhhai.cn(nginx 已配 Upgrade 头 + 反代
+        // backend:3001,Cookie 同 eTLD+1 自动带上)。
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'
+        ? `${window.location.protocol}//${window.location.hostname}:3001`
+        : `${window.location.protocol}//api.suhhai.cn`
       : 'http://localhost:3001');
 
   socket = io(`${url}/realtime`, {
