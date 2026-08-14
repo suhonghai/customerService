@@ -6,6 +6,7 @@ import { getVisitorId } from '@/lib/visitor';
 import { sanitizeTitle } from '@/lib/pii-sanitize';
 import { getErpAdminClient } from '@/lib/erp-admin-client';
 import { withCache } from '@/lib/with-cache';
+import { getClientUserId, getClientCustomerId } from '@/lib/auth';
 
 /**
  * 一个客服会话(终端用户视图)。
@@ -235,6 +236,9 @@ export function useSessions() {
               sessionKey,
               visitorId,
               title: opts?.title ?? DEFAULT_TITLE,
+              // cs-round-055:补 userId/customerId(已登录时落到 cs_session,防孤儿)
+              userId: getClientUserId() ?? undefined,
+              customerId: getClientCustomerId() ?? undefined,
             }),
           });
           if (!res.ok) {
@@ -379,6 +383,7 @@ export function useSessions() {
         );
       }
       if (newTitle !== target.title) {
+        // cs-round-055:updateActiveSession 派生 title 后 upsert 同样补 userId/customerId
         fetch('/api/sessions/upsert', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -386,6 +391,8 @@ export function useSessions() {
             sessionKey: target.sessionKey,
             visitorId,
             title: newTitle,
+            userId: getClientUserId() ?? undefined,
+            customerId: getClientCustomerId() ?? undefined,
           }),
         }).catch((e) => console.warn('[title persist] failed', e));
       }

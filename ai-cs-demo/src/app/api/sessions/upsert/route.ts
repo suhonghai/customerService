@@ -23,6 +23,8 @@ export async function POST(req: NextRequest) {
       channel?: number;
       aiModelCode?: string;
       userId?: number | null; // V1 S5:已登录用户的 userId(透传给后端)
+      // cs-round-055:C 端账号必须透传给后端,落到 cs_session.customer_id(与 userId 互斥)
+      customerId?: number | null;
     };
     if (!body.sessionKey || !body.visitorId) {
       return NextResponse.json({ error: 'sessionKey 和 visitorId 必填' }, { status: 400 });
@@ -35,6 +37,9 @@ export async function POST(req: NextRequest) {
       channel: body.channel,
       aiModelCode: body.aiModelCode,
       userId: typeof body.userId === 'number' ? body.userId : undefined,
+      // cs-round-055:C 端 CsCustomer.id 透传(后端落到 cs_session.customer_id)
+      customerId:
+        typeof body.customerId === 'number' ? body.customerId : undefined,
     });
     return NextResponse.json({ id: session.id });
   } catch (e) {
