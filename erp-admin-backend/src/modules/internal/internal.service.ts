@@ -174,32 +174,68 @@ export class InternalService {
     const visitorName = dto.visitorName ?? `访客-${dto.visitorId.slice(0, 8)}`;
     const channel = dto.channel ?? 1;
 
-    // cs-round-056:事务内写首条 user msg + 返回 [session, createdMessage]
-    // 用 tuple 而不是闭包变量 — TypeScript 控制流分析能可靠追踪 tx callback 内
-    // 的赋值,避免 `createdMessage: never` 类型推断 bug(闭包变量在 tx 回调里赋值
-    // 后,callback 外 if 判断时 TS 误判为 never)。
+    // cs-round-058:并发安全 — 事务内不能用 Prisma upsert。
+    //   Prisma 把 upsert 翻译成「先 SELECT 后 INSERT/UPDATE」两步,MySQL REPEATABLE READ
+    //   下两个并发 tx 都看不到对方未 commit 的 session,都尝试 create → 第二个
+    //   P2002 失败 → 整个 tx rollback → user msg 也不写。prod session 66 就是
+    //   这个问题(chat route 第二次并发调 upsertSession 撞 P2002 → assistant
+    //   placeholder 没写 → AI 没回复)。
+    //   修法:tx.csSession.findUnique + 显式分支,create 失败 catch P2002 后
+    //   retry findUnique + update(对方刚 commit 的 session)。
     const txResult = await this.prisma.$transaction(async (tx) => {
-      const s = await tx.csSession.upsert({
+      let s = await tx.csSession.findUnique({
         where: { sessionKey: dto.sessionKey },
-        update: {
-          // 已有会话:同步元数据(messageCount 由 appendMessage 维护)
-          ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
-          ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
-          ...(dto.title ? { visitorName: dto.title } : {}),
-        },
-        create: {
-          sessionKey: dto.sessionKey,
-          visitorId: dto.visitorId,
-          visitorName,
-          channel,
-          aiModelCode: dto.aiModelCode ?? null,
-          // 新会话:messageCount = 0,等第一条 appendMessage 才 +1
-          messageCount: 0,
-          ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
-          ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
-          ...(dto.title ? { visitorName: dto.title } : {}),
-        },
       });
+      if (!s) {
+        // session 不存在 → 尝试 create
+        try {
+          s = await tx.csSession.create({
+            data: {
+              sessionKey: dto.sessionKey,
+              visitorId: dto.visitorId,
+              visitorName,
+              channel,
+              aiModelCode: dto.aiModelCode ?? null,
+              messageCount: 0,
+              ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
+              ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+              ...(dto.title ? { visitorName: dto.title } : {}),
+            },
+          });
+        } catch (e) {
+          // cs-round-058:P2002 = 并发竞态(对方事务刚 create 了同 sessionKey)。
+          //   重新 findUnique 一定能拿到,直接 update 它的 metadata 即可。
+          if (
+            e instanceof Prisma.PrismaClientKnownRequestError &&
+            e.code === 'P2002'
+          ) {
+            s = await tx.csSession.findUnique({
+              where: { sessionKey: dto.sessionKey },
+            });
+            if (!s) throw e;
+            s = await tx.csSession.update({
+              where: { id: s.id },
+              data: {
+                ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
+                ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+                ...(dto.title ? { visitorName: dto.title } : {}),
+              },
+            });
+          } else {
+            throw e;
+          }
+        }
+      } else {
+        // session 已存在 → update metadata
+        s = await tx.csSession.update({
+          where: { id: s.id },
+          data: {
+            ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
+            ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+            ...(dto.title ? { visitorName: dto.title } : {}),
+          },
+        });
+      }
 
       // cs-round-056:首条 user msg 同步落库(同一事务,与 session atomic)
       // 仅当 dto.firstUserMessage 是非空字符串时才写(防御空串 / whitespace)
