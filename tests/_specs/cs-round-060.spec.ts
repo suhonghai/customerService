@@ -23,6 +23,13 @@
  *      `inFlightGenerations.has(placeholderId)`。有则转发原 uiStream(走与续推
  *      路径相同的 tee + drainForever + writer.merge 链路),**不**起新 streamText。
  *      没有则照原路径起新 streamText。
+ *   v2(prod session 92 复现 v1 失败):v1 检查点太晚 — inFlight 注册要等
+ *      result.toUIMessageStream().tee() 之后(原 line ~1183),耗时数百 ms;
+ *      两并发 POST 都过完 v1 check(inFlight undefined)→ 都建 streamText。
+ *      v2 修法:「决定用 assistantMsgId 那一刻(续推 / else 两个分支)立即注册
+ *      tentative inFlightGenerations entry(stream:null + finished 等 streamReady
+ *      Promise),转发块看到 stream=null 时 await streamReadyByMsg,等 buildStream
+ *      完成 + 真实 stream 替换后再转发」,串行彻底堵死 race window。
  *   B. chat/route.ts flushPatch 走模块级 per-assistantMsgId 串行链
  *      (Map<id, Promise<void>>)— 即使未来某条路径仍出现两个 PATCH 写同一行,
  *      第二个 PATCH 等第一个 resolve 才发,避免「A 写 status=1+content 完成前
@@ -104,11 +111,61 @@ describe('cs-round-060: chat route 同 assistantMsgId 并发 streamText 竞态',
       expect(
         betweenBlock,
         'forward 块必须 tee in-flight.stream 后 drainForever bg 分支',
-      ).toMatch(/inFlight\.stream\.tee\s*\(\s*\)/);
+      ).toMatch(/inFlight!?\.stream\.tee\s*\(\s*\)/);
       expect(
         betweenBlock,
-        'forward 块必须有 cs-round-060 日志标注',
-      ).toMatch(/cs-round-060 forward in-flight/);
+        'forward 块必须有 cs-round-060 v2 日志标注(说明 v2 已就位)',
+      ).toMatch(/cs-round-060 v2 forward/);
+    });
+  });
+
+  describe('v2. claim block + streamReady Promise (堵死 v1 的 race window)', () => {
+    it('Then: chat/route.ts 必须有 streamReadyByMsg + streamReadyResolvers + claim + await 块', () => {
+      const p = resolve(ROOT, 'ai-cs-demo/src/app/api/chat/route.ts');
+      expect(existsSync(p)).toBe(true);
+      const text = stripComments(readFileSync(p, 'utf-8'));
+
+      // v2.1:模块级 streamReadyByMsg / streamReadyResolvers 必须存在
+      expect(
+        text,
+        '必须声明 streamReadyByMsg Map<number, Promise<InFlightEntry>>(v2 关键)',
+      ).toMatch(/streamReadyByMsg\s*=\s*new\s+Map\s*<\s*number\s*,\s*Promise\s*<\s*InFlightEntry\s*>\s*>/);
+      expect(
+        text,
+        '必须声明 streamReadyResolvers Map<number, (entry) => void>(v2 resolver 存储)',
+      ).toMatch(/streamReadyResolvers\s*=\s*new\s+Map\s*<\s*number\s*,\s*\(\s*entry\s*:\s*InFlightEntry\s*\)\s*=>\s*void\s*>/);
+
+      // v2.2:claim 块必须存在(决定用 id 那一刻就注册 tentative inFlight)
+      // 至少 2 个 claim 块:续推分支 + else 分支 cs-round-059 reuse 之后
+      const claimMatches = text.match(/cs-round-060 v2 claim/g);
+      expect(
+        claimMatches && claimMatches.length >= 2,
+        'claim 块必须至少 2 处(续推分支 + else 分支 cs-round-059 reuse 之后)',
+      ).toBe(true);
+
+      // v2.3:await stream-ready 块必须存在(转发前等真实 stream)
+      const awaitMatches = text.match(/await\s+streamReadyByMsg\.get\s*\(\s*assistantMsgId\s*\)/);
+      expect(
+        awaitMatches && awaitMatches.length >= 1,
+        'await streamReadyByMsg.get(assistantMsgId) 块必须存在(v2 串行核心)',
+      ).toBe(true);
+
+      // v2.4:buildStream 完成处必须 resolver.resolve(realEntry)(把真实 entry 投递给 waiter)
+      // 找 inFlightGenerations.set(realEntry) 之后的窗口
+      expect(
+        text,
+        'buildStream 完成处必须 resolver(realEntry) 解锁 waiter',
+      ).toMatch(/streamReadyResolvers\.get\s*\(\s*assistantMsgId\s*\)/);
+      expect(
+        text,
+        'buildStream 完成处必须 resolver 调用,不能漏',
+      ).toMatch(/resolver\s*\(\s*realEntry\s*\)/);
+
+      // v2.5:onError 必须 cleanup tentative entry,不能让 waiter 永远卡住
+      expect(
+        text,
+        'onError 必须 resolver(null) 让 waiter 醒来 re-check',
+      ).toMatch(/resolver\s*\(\s*null\s+as\s+unknown\s+as\s+InFlightEntry\s*\)/);
     });
   });
 

@@ -200,6 +200,29 @@ type InFlightEntry = {
 const inFlightGenerations = new Map<number, InFlightEntry>();
 
 /**
+ * cs-round-060 v2:per-assistantMsgId 「stream 准备好」Promise —
+ *   决定用 assistantMsgId 那一刻(in 续推 / else 两个分支)立即注册一个 tentative
+ *   inFlightGenerations entry(stream:null + finished=这个 Promise),后续 POST 看到
+ *   该 entry 就 await 这个 Promise,等 buildStream 完成 + 真实 stream 替换后再转发。
+ *
+ *   解决的 race:v1 修法只是「cs-round-059 reuse 后查 inFlight」,但 inFlight 注册
+ *   要等 line 1183 (result.toUIMessageStream().tee() 之后),耗时数百 ms;两并发 POST
+ *   都在 v1 check 处看到 inFlight undefined → 都建 streamText。prod session 92 案例:
+ *   两 POST 间隔 < 1ms,v1 完全没生效。
+ *
+ *   v2 修法:「决定用 id → 立即注册 tentative entry → 转发时若 stream null 则 await」。
+ *   串行通过 Promise 强制保证:第二个 POST 一定会等到第一个 POST 的 buildStream 完成。
+ *
+ *   关键字段:
+ *     streamReadyByMsg:Map<assistantMsgId, Promise<InFlightEntry>> —
+ *       resolve 时携带真实 InFlightEntry。claim 时设 resolve 函数,buildStream 完成时 resolve。
+ *     streamReadyResolvers:Map<assistantMsgId, (entry) => void> —
+ *       跨函数闭包存 resolve 函数,buildStream 完成时调用。
+ */
+const streamReadyByMsg = new Map<number, Promise<InFlightEntry>>();
+const streamReadyResolvers = new Map<number, (entry: InFlightEntry) => void>();
+
+/**
  * cs-round-060:per-assistantMsgId PATCH 串行链 — 防止并发 POST /api/chat 写同一行
  *   cs_message 时,后写的 status=4 + 空 content 覆盖先写的 status=1 + 实际内容。
  *   即使 fix A 的 in-flight 转发已避免 streamText 重复起,此处的串行链是 defense-in-depth:
@@ -541,12 +564,43 @@ export async function POST(req: Request) {
             `[chat] continueFromMessageId=${assistantMsgId} status=${existing.status} contentLen=${(existing.content || '').length} → 续推`,
           );
 
+          // cs-round-060 v2:决定用 assistantMsgId 那一刻就立即注册 tentative inFlight
+          //   (stream:null + finished 等 buildStream 完成)— 防止两并发 POST 都看到
+          //   inFlight undefined、都建 streamText 的 race(prod session 92:v1 失败案例)
+          if (assistantMsgId > 0 && !inFlightGenerations.has(assistantMsgId)) {
+            let resolveReady: (entry: InFlightEntry) => void;
+            const ready = new Promise<InFlightEntry>((resolve) => {
+              resolveReady = resolve;
+            });
+            streamReadyByMsg.set(assistantMsgId, ready);
+            streamReadyResolvers.set(assistantMsgId, resolveReady!);
+            inFlightGenerations.set(assistantMsgId, {
+              stream: null as unknown as ReadableStream, // tentative; buildStream 完后会覆盖
+              finished: ready.then(() => undefined),
+              sessionId,
+              startedAt: Date.now(),
+            });
+            console.log(
+              `[chat] cs-round-060 v2 claim assistantMsgId=${assistantMsgId} sessionId=${sessionId} (续推分支)`,
+            );
+          }
+
           // cs-round-026:原 streamText 仍在跑(同 assistantMsgId in-flight 命中)
           // → 转发 uiStream 给当前 client,**不**重新调 streamText / withStreamRetry
           // / result.text / flushPatch。避免与原请求抢同一 DB row + 双 LLM 费用 +
           // status 字段抖动。
-          const inFlight = inFlightGenerations.get(assistantMsgId);
-          if (inFlight) {
+          // cs-round-060 v2:inFlight.stream 为 null = tentative(claim 已注册但 buildStream
+          //   还没完),await streamReadyByMsg 完成,再 re-check inFlightGenerations;
+          //   若 buildStream 成功,转发真实 stream;若失败,fall through 走下面 else 路径。
+          let inFlight = inFlightGenerations.get(assistantMsgId);
+          if (inFlight && !inFlight.stream) {
+            console.log(
+              `[chat] cs-round-060 v2 await stream-ready assistantMsgId=${assistantMsgId} (续推分支 in-flight pending)`,
+            );
+            await streamReadyByMsg.get(assistantMsgId);
+            inFlight = inFlightGenerations.get(assistantMsgId);
+          }
+          if (inFlight && inFlight.stream) {
             console.log(
               `[chat] cs-round-026 in-flight hit assistantMsgId=${assistantMsgId} → forwarding uiStream(跳过 buildStream)`,
             );
@@ -605,29 +659,53 @@ export async function POST(req: Request) {
               console.log(
                 `[chat] cs-round-059 reuse existing assistant placeholder sessionId=${sessionId} msgId=${existing.id}`,
               );
-              // cs-round-060:reuse placeholder 后必须先看 inFlightGenerations —
-              //   若同 assistantMsgId 已有 streamText 在跑(典型:用户连续点发送 /
-              //   续推 + 新 send 并发到达),**转发原 uiStream** 而不是起新 streamText,
-              //   否则两个 streamText 同时跑、同时 PATCH 同 cs_message row,后写
-              //   空 content + status=4 覆盖先写 status=1 + 实际内容(prod session 86/88)。
-              //   转发路径与续推路径 line 533-562 完全一致:tee + drainForever + merge + await finished。
-              const inFlight = inFlightGenerations.get(placeholderId);
-              if (inFlight) {
+              // cs-round-060 v2:reuse placeholder 后立即注册 tentative claim
+              //   (与续推分支 line 548 之前的行为对齐)— 防止两并发 POST 都看到
+              //   inFlight undefined、都建 streamText。inFlight.stream 为 null 时,
+              //   等下方 cs-round-060 forward 块 await streamReadyByMsg。
+              if (placeholderId > 0 && !inFlightGenerations.has(placeholderId)) {
+                let resolveReady: (entry: InFlightEntry) => void;
+                const ready = new Promise<InFlightEntry>((resolve) => {
+                  resolveReady = resolve;
+                });
+                streamReadyByMsg.set(placeholderId, ready);
+                streamReadyResolvers.set(placeholderId, resolveReady!);
+                inFlightGenerations.set(placeholderId, {
+                  stream: null as unknown as ReadableStream,
+                  finished: ready.then(() => undefined),
+                  sessionId,
+                  startedAt: Date.now(),
+                });
                 console.log(
-                  `[chat] cs-round-060 forward in-flight instead of new streamText sessionId=${sessionId} assistantMsgId=${placeholderId}`,
+                  `[chat] cs-round-060 v2 claim assistantMsgId=${placeholderId} sessionId=${sessionId} (else 分支 reuse)`,
+                );
+              }
+              // cs-round-060 v2:reuse 后查 inFlight。stream 已就绪 → 直接转发;stream null
+              //   → 等 streamReadyByMsg;若 buildStream 失败 (inFlight 被删),fall through 创建新。
+              let inFlight = inFlightGenerations.get(placeholderId);
+              if (inFlight && !inFlight.stream) {
+                console.log(
+                  `[chat] cs-round-060 v2 await stream-ready assistantMsgId=${placeholderId} (else 分支 in-flight pending)`,
+                );
+                await streamReadyByMsg.get(placeholderId);
+                inFlight = inFlightGenerations.get(placeholderId);
+              }
+              if (inFlight && inFlight.stream) {
+                console.log(
+                  `[chat] cs-round-060 v2 forward real stream sessionId=${sessionId} assistantMsgId=${placeholderId}`,
                 );
                 return createUIMessageStreamResponse({
                   stream: createUIMessageStream({
                     originalMessages: messages,
                     execute: async ({ writer }) => {
                       try {
-                        const [resumeClientStream, resumeBgStream] = inFlight.stream.tee();
+                        const [resumeClientStream, resumeBgStream] = inFlight!.stream.tee();
                         void drainForever(resumeBgStream);
                         writer.merge(resumeClientStream);
-                        await inFlight.finished;
+                        await inFlight!.finished;
                       } catch (e) {
                         console.warn(
-                          '[chat] cs-round-060 forward failed:',
+                          '[chat] cs-round-060 v2 forward failed:',
                           (e as Error).message,
                         );
                       }
@@ -636,6 +714,10 @@ export async function POST(req: Request) {
                   }),
                 });
               }
+              // buildStream 失败 → fall through,让本 POST 走 else 分支建新 streamText
+              console.log(
+                `[chat] cs-round-060 v2 fallback to new streamText assistantMsgId=${placeholderId} (original failed)`,
+              );
             }
           } catch (e) {
             console.warn(
@@ -1181,7 +1263,7 @@ ${contextBlock}`;
           // result.text 兜底(success / error 都 resolve),onFinish / onError / onAbort
           // 三个 callback 里 delete 防内存泄漏。
           if (assistantMsgId > 0) {
-            inFlightGenerations.set(assistantMsgId, {
+            const realEntry: InFlightEntry = {
               stream: mapBranch,
               finished: result.text.then(
                 () => undefined,
@@ -1189,10 +1271,19 @@ ${contextBlock}`;
               ),
               sessionId,
               startedAt: Date.now(),
-            });
+            };
+            inFlightGenerations.set(assistantMsgId, realEntry);
             console.log(
               `[chat] cs-round-026 in-flight registered assistantMsgId=${assistantMsgId} sessionId=${sessionId}`,
             );
+            // cs-round-060 v2:buildStream 完成 → 把真实 entry 投递给「等 stream-ready」
+            //   的续推 / else 分支转发块,这样第二个 POST await streamReadyByMsg 能 unblock,
+            //   拿到 realEntry 转发而不是 fall through 自建 streamText。
+            const resolver = streamReadyResolvers.get(assistantMsgId);
+            if (resolver) {
+              resolver(realEntry);
+              streamReadyResolvers.delete(assistantMsgId);
+            }
           }
           writer.merge(clientStream);
 
@@ -1236,6 +1327,15 @@ ${contextBlock}`;
         flushPatch(4);
         // cs-round-026:cleanup in-flight — streamText 真·业务错,resume 转发也无意义
         inFlightGenerations.delete(assistantMsgId);
+        // cs-round-060 v2:buildStream 失败后,tentative in-flight entry 已被 delete,
+        //   但 streamReadyByMsg 的 Promise 没 resolve → 后续等着的 POST 会卡死。
+        //   此处 resolve(null) 让 waiter 醒来,re-check inFlightGenerations 已空 → fall through。
+        const resolver = streamReadyResolvers.get(assistantMsgId);
+        if (resolver) {
+          resolver(null as unknown as InFlightEntry);
+          streamReadyResolvers.delete(assistantMsgId);
+          streamReadyByMsg.delete(assistantMsgId);
+        }
         lastPatchInFlight.then().catch(() => null);
         return serializeError(err);
       },
