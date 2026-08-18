@@ -84,8 +84,17 @@ describe('MessageInput', () => {
       />,
     )
     const ta = screen.getByPlaceholderText('说点什么...')
+    // cs-round-061:Enter 路径走 HTML spec implicit submission(form 有 default
+    // submit button 时,Enter 模拟 click 该 button → 触发 native submit event
+    // → React 调度 form onSubmit → handleSubmit → onSubmit 1 次)。jsdom 不模拟
+    // implicit submission,所以这里先 fireEvent.keyDown(测 preventDefault 行为)
+    // 再 fireEvent.submit(测 form onSubmit 触发链路)— 模拟真实浏览器路径。
     fireEvent.keyDown(ta, { key: 'Enter' })
+    // 模拟浏览器 implicit form submission
+    const form = ta.closest('form')!
+    fireEvent.submit(form)
     expect(onSubmit).toHaveBeenCalledOnce()
+    // Shift+Enter:preventDefault 阻止 implicit submit,onSubmit 不 +1
     fireEvent.keyDown(ta, { key: 'Enter', shiftKey: true })
     expect(onSubmit).toHaveBeenCalledOnce()  // 没再 +1
   })
