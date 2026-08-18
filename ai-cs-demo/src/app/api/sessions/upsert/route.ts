@@ -28,6 +28,8 @@ export async function POST(req: NextRequest) {
       // cs-round-056:首条 user msg 同步落库(防孤儿空会话);透传给 erp client
       firstUserMessage?: string;
       firstUserMessageParts?: unknown;
+      // cs-round-059:同时创建 assistant placeholder?ai-cs-demo 新建会话传 true
+      createAssistantPlaceholder?: boolean;
     };
     if (!body.sessionKey || !body.visitorId) {
       return NextResponse.json({ error: 'sessionKey 和 visitorId 必填' }, { status: 400 });
@@ -46,6 +48,8 @@ export async function POST(req: NextRequest) {
       // cs-round-056:首条 user msg 透传(后端事务内落 cs_message + messageCount +1)
       firstUserMessage: body.firstUserMessage,
       firstUserMessageParts: body.firstUserMessageParts,
+      // cs-round-059:同时创建 assistant placeholder(防 client cancel 丢 AI 回复)
+      createAssistantPlaceholder: body.createAssistantPlaceholder,
     });
     return NextResponse.json({ id: session.id });
   } catch (e) {

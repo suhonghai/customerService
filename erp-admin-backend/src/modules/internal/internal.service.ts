@@ -240,6 +240,8 @@ export class InternalService {
       // cs-round-056:首条 user msg 同步落库(同一事务,与 session atomic)
       // 仅当 dto.firstUserMessage 是非空字符串时才写(防御空串 / whitespace)
       const firstMsg = dto.firstUserMessage?.trim();
+      let createdMessage: { id: number; content: string; status: number; role: string } | null = null;
+      let assistantPlaceholder: { id: number; role: 'assistant'; status: 2 } | null = null;
       if (firstMsg) {
         const created = await tx.csMessage.create({
           data: {
@@ -255,12 +257,49 @@ export class InternalService {
           where: { id: s.id },
           data: { messageCount: { increment: 1 } },
         });
-        return { session: s, createdMessage: created };
+        createdMessage = {
+          id: created.id,
+          content: created.content,
+          status: created.status,
+          role: created.role,
+        };
       }
-      return { session: s, createdMessage: null };
+
+      // cs-round-059:BFF upsert 同步创建 assistant placeholder(status=2, content='')
+      //   修法背景:client 在 chat route 写 assistant 之前 cancel(点发送 + 立即刷新)
+      //   → DB 只有 user msg,assistant 永远缺失 → AI 没回复。修法:BFF upsert 事务
+      //   内一并写 assistant placeholder,client cancel 时 DB 仍有完整 user + placeholder
+      //   → /history 返回 2 条 → useAutoResumeStreaming 看到 status=2 → 续推。
+      //   chat route 写 assistant 前会查「同 session 是否已有 status=2 assistant」
+      //   (chat/route.ts 的 cs-round-059 修复),有则复用 updateMessage 而非
+      //   appendMessage,避免重复 placeholder。
+      if (dto.createAssistantPlaceholder) {
+        const placeholder = await tx.csMessage.create({
+          data: {
+            sessionId: s.id,
+            role: 'assistant',
+            content: '',
+            parts: [] as Prisma.InputJsonValue,
+            status: 2,
+            // metadata 不标 source — 这是普通 AI placeholder,不是 handoff ack
+            // (handoff ack 由 chat route 的 ack 分支创建,见 cs-round-031/040)
+          },
+        });
+        await tx.csSession.update({
+          where: { id: s.id },
+          data: { messageCount: { increment: 1 } },
+        });
+        assistantPlaceholder = {
+          id: placeholder.id,
+          role: 'assistant',
+          status: 2,
+        };
+      }
+
+      return { session: s, createdMessage, assistantPlaceholder };
     });
 
-    const { session, createdMessage } = txResult;
+    const { session, createdMessage, assistantPlaceholder } = txResult;
 
     // 事务提交后再做 WS emit(不能在 tx 内 — emit 是 IO,必须事务已落库)
     if (createdMessage) {

@@ -341,9 +341,13 @@ export function RAGChat() {
       // 把 URL 从 tempId 切到 backendId(URL 是 activeId 真相源,不能停在 tempId)。
       // cs-round-056:userMessage.text + userMessage.parts 透传给 createSession,
       // 由 createSession 发 upsert 时落 cs_message(role=user, status=1)+ messageCount +1。
+      // cs-round-059:createAssistantPlaceholder:true 让 BFF upsert 同步创建
+      // assistant placeholder(status=2, content='')— client 立即刷新时 DB 仍
+      // 有完整 user + placeholder,resume 机制触发续推。
       const { sessionKey, tempId } = createSession({
         title,
         userMessage: { text, parts: userMsg.parts },
+        createAssistantPlaceholder: true,
         onCommit: (backendId) => router.replace(`/chat/${backendId}`),
       });
       currentActiveId = String(tempId);

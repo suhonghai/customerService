@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
@@ -68,4 +68,14 @@ export class UpsertSessionDto {
    *  形状:Array<{type:'text', text:string}> 等。AI SDK 6.x 结构,不强 schema 校验。 */
   @IsOptional()
   firstUserMessageParts?: unknown;
+
+  /** cs-round-059:BFF upsert 同时创建 assistant placeholder(status=2, content='')?
+   *  默认 false,保持向后兼容;ai-cs-demo 新建会话时传 true。
+   *  修法背景:client 在 chat route 写 assistant 之前 cancel(点发送 + 立即刷新)
+   *  → DB 只有 user msg,assistant 永远缺失。修法:BFF upsert 事务内一并写
+   *  assistant placeholder,client cancel 时 DB 仍有完整 user + placeholder →
+   *  /history 返回 2 条 → resume 触发续推。 */
+  @IsOptional()
+  @IsBoolean()
+  createAssistantPlaceholder?: boolean;
 }

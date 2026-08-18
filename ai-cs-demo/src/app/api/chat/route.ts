@@ -571,19 +571,42 @@ export async function POST(req: Request) {
           );
         }
       } else {
-        // 创建 assistant placeholder(空内容,status=2 streaming)
+        // cs-round-059:创建 assistant placeholder 前必须查「同 session 已有 status=2
+        //   assistant msg」(BFF upsert cs-round-059 可能已写)。有则复用 — 避免双
+        //   placeholder(user msg 重复计数 + UI 重复气泡)。
         // 流式期间节流 PATCH 这个 id,流结束 PATCH status=1 done。
         // 兜底:如果 placeholder 创建失败,记 -1,后续 PATCH 跳过(不影响流给浏览器)。
         //
         // 注意:必须在 handoff 检测之后 —— ack 路径已经 return,不会走到这里。
         try {
-          const placeholder = await erp.appendMessage(sessionId, {
-            role: 'assistant',
-            content: '',
-            parts: [],
-            status: 2,
-          });
-          assistantMsgId = placeholder.id;
+          let placeholderId: number | null = null;
+          try {
+            const existingMsgs = await erp.getSessionMessages(sessionId);
+            const existing = existingMsgs.find(
+              (m) => m.role === 'assistant' && m.status === 2,
+            );
+            if (existing) {
+              placeholderId = existing.id;
+              console.log(
+                `[chat] cs-round-059 reuse existing assistant placeholder sessionId=${sessionId} msgId=${existing.id}`,
+              );
+            }
+          } catch (e) {
+            console.warn(
+              '[chat] cs-round-059 existing placeholder lookup failed,fallback to create:',
+              (e as Error).message,
+            );
+          }
+          if (placeholderId === null) {
+            const placeholder = await erp.appendMessage(sessionId, {
+              role: 'assistant',
+              content: '',
+              parts: [],
+              status: 2,
+            });
+            placeholderId = placeholder.id;
+          }
+          assistantMsgId = placeholderId;
         } catch (e) {
           console.warn('[chat] assistant placeholder create failed:', (e as Error).message);
           assistantMsgId = -1;

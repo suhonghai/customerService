@@ -208,6 +208,13 @@ export function useSessions() {
        */
       userMessage?: { text: string; parts: unknown[] };
       /**
+       * cs-round-059:同时让 BFF upsert 创建 assistant placeholder(status=2, content='')?
+       * 默认 true — 新建会话场景几乎都需要(client 在 chat route 写 assistant 之前
+       * 取消时 DB 仍有完整 user + placeholder,resume 机制可触发续推)。
+       * 设为 false 用于特殊场景(比如后台批处理、不期望 AI 回复的 upsert)。
+       */
+      createAssistantPlaceholder?: boolean;
+      /**
        * cs-round-015:upsert 异步成功(拿到真 backendId)时触发。
        * 用途:RAGChat 在此 callback 内 `router.replace('/chat/${backendId}')`,
        *      把 URL 从 tempId 切到 backendId(URL 是 activeId 真相源,必须同步)。
@@ -249,6 +256,9 @@ export function useSessions() {
               // cs-round-056:首条 user msg 同步落库(防孤儿空会话)
               firstUserMessage: opts?.userMessage?.text,
               firstUserMessageParts: opts?.userMessage?.parts,
+              // cs-round-059:同时创建 assistant placeholder(防 client cancel 丢 AI)
+              // 默认 true — opts.createAssistantPlaceholder === undefined 时也走 true
+              createAssistantPlaceholder: opts?.createAssistantPlaceholder !== false,
             }),
           });
           if (!res.ok) {

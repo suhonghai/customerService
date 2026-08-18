@@ -177,6 +177,10 @@ export class ErpAdminClient {
     firstUserMessage?: string;
     /** cs-round-056:首条 user msg 的 AI SDK UI Message parts(透传给 cs_message.parts)。 */
     firstUserMessageParts?: unknown;
+    /** cs-round-059:同时创建 assistant placeholder(status=2, content='')?
+     *  默认 false 向后兼容;ai-cs-demo 新建会话场景传 true。修法背景见
+     *  UpsertSessionDto.createAssistantPlaceholder 注释。 */
+    createAssistantPlaceholder?: boolean;
   }): Promise<SessionInfo> {
     return this.request<SessionInfo>('/api/internal/cs/sessions', {
       method: 'POST',
