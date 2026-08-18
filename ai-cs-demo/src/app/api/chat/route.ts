@@ -199,6 +199,21 @@ type InFlightEntry = {
 };
 const inFlightGenerations = new Map<number, InFlightEntry>();
 
+/**
+ * cs-round-060:per-assistantMsgId PATCH 串行链 — 防止并发 POST /api/chat 写同一行
+ *   cs_message 时,后写的 status=4 + 空 content 覆盖先写的 status=1 + 实际内容。
+ *   即使 fix A 的 in-flight 转发已避免 streamText 重复起,此处的串行链是 defense-in-depth:
+ *   任何后续路径(以后再开新入口 / 跨模块共享)想并发 PATCH 同一 assistantMsgId,后写自动
+ *   等前写 resolve,避免乱序。
+ *
+ *   Map<assistantMsgId, Promise<void>>:前驱 → 当前 → ... chain。flushPatch 读 prev
+ *   → 在 prev.then 内起新 promise → set 回 map → 让后续 PATCH 等当前。
+ *
+ *   清理:每次新 promise .finally() 检查「map 当前值是不是我」,是则 delete(避免 stale entry)。
+ *   与 inFlightGenerations 同模式(都是 module-level map + 主动 cleanup)。
+ */
+const patchChainsByMsg = new Map<number, Promise<void>>();
+
 /** stale entry 兜底清理 — 每 60s 扫一次,删除 finished > 5min 的 entry。Module-load 时挂一次。 */
 const STALE_INFLIGHT_MS = 5 * 60 * 1000;
 const STALE_INFLIGHT_SWEEP_MS = 60 * 1000;
@@ -590,6 +605,37 @@ export async function POST(req: Request) {
               console.log(
                 `[chat] cs-round-059 reuse existing assistant placeholder sessionId=${sessionId} msgId=${existing.id}`,
               );
+              // cs-round-060:reuse placeholder 后必须先看 inFlightGenerations —
+              //   若同 assistantMsgId 已有 streamText 在跑(典型:用户连续点发送 /
+              //   续推 + 新 send 并发到达),**转发原 uiStream** 而不是起新 streamText,
+              //   否则两个 streamText 同时跑、同时 PATCH 同 cs_message row,后写
+              //   空 content + status=4 覆盖先写 status=1 + 实际内容(prod session 86/88)。
+              //   转发路径与续推路径 line 533-562 完全一致:tee + drainForever + merge + await finished。
+              const inFlight = inFlightGenerations.get(placeholderId);
+              if (inFlight) {
+                console.log(
+                  `[chat] cs-round-060 forward in-flight instead of new streamText sessionId=${sessionId} assistantMsgId=${placeholderId}`,
+                );
+                return createUIMessageStreamResponse({
+                  stream: createUIMessageStream({
+                    originalMessages: messages,
+                    execute: async ({ writer }) => {
+                      try {
+                        const [resumeClientStream, resumeBgStream] = inFlight.stream.tee();
+                        void drainForever(resumeBgStream);
+                        writer.merge(resumeClientStream);
+                        await inFlight.finished;
+                      } catch (e) {
+                        console.warn(
+                          '[chat] cs-round-060 forward failed:',
+                          (e as Error).message,
+                        );
+                      }
+                    },
+                    onError: (err) => serializeError(err),
+                  }),
+                });
+              }
             }
           } catch (e) {
             console.warn(
@@ -778,13 +824,28 @@ ${contextBlock}`;
           reasoningLength: accumulatedReasoning.length,
         },
       };
-      lastPatchInFlight = lastPatchInFlight.then(async () => {
+      // cs-round-060:per-assistantMsgId 串行链 — chain 到 module-level patchChainsByMsg
+      //   map,而不是只 chain 到 lastPatchInFlight(后者只覆盖本 handler 内的 PATCH 序列,
+      //   无法跨 handler 串行)。map[assistantMsgId] 是「目前为止所有 PATCH 的总链」。
+      //   cleanup:新 promise resolve 后若 map 当前值仍是自己,delete;避免 stale entry
+      //   阻碍后续 PATCH 误等已结束的链。
+      const prev = patchChainsByMsg.get(assistantMsgId) ?? Promise.resolve();
+      const next = prev.then(async () => {
         try {
           await erp.updateMessage(sessionId, assistantMsgId, payload);
         } catch (e) {
           console.warn('[chat] PATCH failed:', (e as Error).message);
         }
       });
+      patchChainsByMsg.set(assistantMsgId, next);
+      // .finally 在 Promise 链 resolve 或 reject 后都触发,用于清理自身
+      void next.finally(() => {
+        if (patchChainsByMsg.get(assistantMsgId) === next) {
+          patchChainsByMsg.delete(assistantMsgId);
+        }
+      });
+      // 仍保留 lastPatchInFlight 给本 handler 内 `await lastPatchInFlight` 用
+      lastPatchInFlight = next;
     };
 
     const schedulePatch = () => {
