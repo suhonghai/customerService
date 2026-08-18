@@ -175,7 +175,62 @@ export function useChatState({
         }
         setMessages((prev) => {
           const localIds = new Set(prev.map((m) => String(m.id)));
-          const newFromBackend = restored.filter((m) => !localIds.has(String(m.id)));
+          // cs-round-057:兜底二次去重 — 按 content + role + 短时间窗口(10s)。
+          //   解决 cs-round-056 引入的「点 1 次发送 → UI 显示 2 条 user msg」bug。
+          //   根因:useChat sendMessage 内部 push 的 user msg id 是 client 生成的
+          //   (如 "client-abc"),与 DB cs_message 自增 id(如 69)不同 → 旧逻辑
+          //   只看 localIds.has(String(m.id)) 永远不去重 → push 2 条相同 user msg。
+          //   兜底:同 content + role + 时间窗口(10s 内)的视为同一条;超过 10s
+          //   视为不同会话的不同消息,不去重(防用户两次发相同问题误杀)。
+          const SHORT_DEDUP_WINDOW_MS = 10_000;
+          const getTextOf = (m: { content?: unknown; parts?: unknown }): string => {
+            if (typeof m.content === 'string') return m.content;
+            const parts = Array.isArray(m.parts) ? m.parts : [];
+            for (const p of parts) {
+              const pt = (p as { type?: unknown; text?: unknown }).type;
+              const tx = (p as { text?: unknown }).text;
+              if (pt === 'text' && typeof tx === 'string') return tx;
+            }
+            return '';
+          };
+          const getTsOf = (m: { createdAt?: unknown }): number => {
+            // m.createdAt 是 ISO string;AI SDK UIMessage 通常没 createdAt,
+            // 这里 fallback m.content 比较时仅在两边都有 createdAt 时才比对窗口。
+            if (typeof m.createdAt === 'string') {
+              const t = Date.parse(m.createdAt);
+              if (!Number.isNaN(t)) return t;
+            }
+            return Number.NaN;
+          };
+          const now = Date.now();
+          const newFromBackend = restored.filter((m) => {
+            // 主去重:按 id(精准,处理正常路径:client id === DB id)
+            if (localIds.has(String(m.id))) return false;
+            // 兜底:按 content + role + 短窗口(覆盖 cs-round-056 竞态)
+            const backendText = getTextOf(m as { content?: string; parts?: unknown });
+            const backendRole = m.role;
+            const backendTs = getTsOf(m as { createdAt?: unknown });
+            for (const p of prev) {
+              if (p.role !== backendRole) continue;
+              const prevText = getTextOf(p as unknown as { content?: string; parts?: unknown });
+              if (prevText !== backendText) continue;
+              // content 一致 → 检查时间窗口(短窗口内才算重复)
+              const prevTs = getTsOf(p as unknown as { createdAt?: unknown });
+              if (!Number.isNaN(prevTs) && !Number.isNaN(backendTs)) {
+                if (Math.abs(prevTs - backendTs) > SHORT_DEDUP_WINDOW_MS) continue;
+              } else {
+                // 缺 createdAt(AI SDK UIMessage 默认无)→ 用 now 兜底窗口:
+                // 10s 内视为重复;超过 10s 视为不重复
+                // prev 是刚 push 的(几秒前),backend 是刚拉的(几秒前),
+                // 两条都在 10s 内 → 视为重复
+                if (!Number.isNaN(backendTs) && now - backendTs > SHORT_DEDUP_WINDOW_MS) {
+                  continue;
+                }
+              }
+              return false; // 重复
+            }
+            return true; // 不重复
+          });
           if (newFromBackend.length === 0) {
             // 后端消息已全部在本地(常见:刚刚 streaming 的 chunk 已经写到 state,
             // /history 拿到的是 streaming 期间的快照)→ 不覆盖,保留 prev(可能比
