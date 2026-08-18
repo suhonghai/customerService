@@ -169,6 +169,26 @@ describe('cs-round-060: chat route 同 assistantMsgId 并发 streamText 竞态',
     });
   });
 
+  describe('v3. claimer 自等死锁防御(prod session 96 复现 v2 失败)', () => {
+    it('Then: await 块必须跳过「自己 claim 的」(myResolver 引用比对)', () => {
+      const p = resolve(ROOT, 'ai-cs-demo/src/app/api/chat/route.ts');
+      expect(existsSync(p)).toBe(true);
+      const text = stripComments(readFileSync(p, 'utf-8'));
+
+      // v3 关键:await 块必须用 `streamReadyResolvers.get(assistantMsgId) !== myResolver`
+      //   跳过 claimer 自己。否则 resolver 要等 buildStream 才调,但 await 阻塞 buildStream
+      //   → 自等死锁,两个 POST 都 pending(prod session 96 案例)。
+      // 必须有 2 处(续推 + else 分支)
+      const matches = text.match(
+        /streamReadyResolvers\.get\([^)]+\)\s*!==\s*\w+Resolver/g,
+      );
+      expect(
+        matches && matches.length >= 2,
+        'claim POST 跳过 await 检查必须至少 2 处(续推 + else 分支)',
+      ).toBe(true);
+    });
+  });
+
   describe('B. flushPatch 走模块级 per-assistantMsgId 串行链', () => {
     it('Then: chat/route.ts 必须有模块级 patchChainsByMsg Map,flushPatch 必须链式写入', () => {
       const p = resolve(ROOT, 'ai-cs-demo/src/app/api/chat/route.ts');

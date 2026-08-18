@@ -567,13 +567,17 @@ export async function POST(req: Request) {
           // cs-round-060 v2:决定用 assistantMsgId 那一刻就立即注册 tentative inFlight
           //   (stream:null + finished 等 buildStream 完成)— 防止两并发 POST 都看到
           //   inFlight undefined、都建 streamText 的 race(prod session 92:v1 失败案例)
+          // v3:claim 后捕获 myResolver — 下方 await 块用「currentResolver !== myResolver」
+          //   判断「自己 claim 的就跳过 await」(否则会自等死锁:resolver 要等 buildStream
+          //   才调,但 await 阻塞 buildStream)。prod session 96 复现:v2 部署后两个 chat
+          //   请求都 pending,根因就是 claim POST 自己 await 自己的 streamReadyByMsg。
+          let myResolver: ((entry: InFlightEntry) => void) | null = null;
           if (assistantMsgId > 0 && !inFlightGenerations.has(assistantMsgId)) {
-            let resolveReady: (entry: InFlightEntry) => void;
             const ready = new Promise<InFlightEntry>((resolve) => {
-              resolveReady = resolve;
+              myResolver = resolve;
             });
             streamReadyByMsg.set(assistantMsgId, ready);
-            streamReadyResolvers.set(assistantMsgId, resolveReady!);
+            streamReadyResolvers.set(assistantMsgId, myResolver);
             inFlightGenerations.set(assistantMsgId, {
               stream: null as unknown as ReadableStream, // tentative; buildStream 完后会覆盖
               finished: ready.then(() => undefined),
@@ -589,13 +593,15 @@ export async function POST(req: Request) {
           // → 转发 uiStream 给当前 client,**不**重新调 streamText / withStreamRetry
           // / result.text / flushPatch。避免与原请求抢同一 DB row + 双 LLM 费用 +
           // status 字段抖动。
-          // cs-round-060 v2:inFlight.stream 为 null = tentative(claim 已注册但 buildStream
+          // cs-round-060 v2+v3:inFlight.stream 为 null = tentative(claim 已注册但 buildStream
           //   还没完),await streamReadyByMsg 完成,再 re-check inFlightGenerations;
           //   若 buildStream 成功,转发真实 stream;若失败,fall through 走下面 else 路径。
+          //   v3:claim POST 自己(mayResolver === streamReadyResolvers.get(id))**跳过 await**,
+          //   否则自等死锁。
           let inFlight = inFlightGenerations.get(assistantMsgId);
-          if (inFlight && !inFlight.stream) {
+          if (inFlight && !inFlight.stream && streamReadyResolvers.get(assistantMsgId) !== myResolver) {
             console.log(
-              `[chat] cs-round-060 v2 await stream-ready assistantMsgId=${assistantMsgId} (续推分支 in-flight pending)`,
+              `[chat] cs-round-060 v3 await stream-ready assistantMsgId=${assistantMsgId} (续推分支 in-flight pending,其他 POST 在跑)`,
             );
             await streamReadyByMsg.get(assistantMsgId);
             inFlight = inFlightGenerations.get(assistantMsgId);
@@ -659,17 +665,19 @@ export async function POST(req: Request) {
               console.log(
                 `[chat] cs-round-059 reuse existing assistant placeholder sessionId=${sessionId} msgId=${existing.id}`,
               );
-              // cs-round-060 v2:reuse placeholder 后立即注册 tentative claim
-              //   (与续推分支 line 548 之前的行为对齐)— 防止两并发 POST 都看到
+              // cs-round-060 v2+v3:reuse placeholder 后立即注册 tentative claim
+              //   (与续推分支 line 567 之前的行为对齐)— 防止两并发 POST 都看到
               //   inFlight undefined、都建 streamText。inFlight.stream 为 null 时,
               //   等下方 cs-round-060 forward 块 await streamReadyByMsg。
+              //   v3:claim POST 自己(mayResolver === streamReadyResolvers.get(id))**跳过 await**,
+              //   否则自等死锁。
+              let myResolver: ((entry: InFlightEntry) => void) | null = null;
               if (placeholderId > 0 && !inFlightGenerations.has(placeholderId)) {
-                let resolveReady: (entry: InFlightEntry) => void;
                 const ready = new Promise<InFlightEntry>((resolve) => {
-                  resolveReady = resolve;
+                  myResolver = resolve;
                 });
                 streamReadyByMsg.set(placeholderId, ready);
-                streamReadyResolvers.set(placeholderId, resolveReady!);
+                streamReadyResolvers.set(placeholderId, myResolver);
                 inFlightGenerations.set(placeholderId, {
                   stream: null as unknown as ReadableStream,
                   finished: ready.then(() => undefined),
@@ -680,12 +688,13 @@ export async function POST(req: Request) {
                   `[chat] cs-round-060 v2 claim assistantMsgId=${placeholderId} sessionId=${sessionId} (else 分支 reuse)`,
                 );
               }
-              // cs-round-060 v2:reuse 后查 inFlight。stream 已就绪 → 直接转发;stream null
-              //   → 等 streamReadyByMsg;若 buildStream 失败 (inFlight 被删),fall through 创建新。
+              // cs-round-060 v2+v3:reuse 后查 inFlight。stream 已就绪 → 直接转发;stream null
+              //   → 等 streamReadyByMsg(只对非 claimer POST);若 buildStream 失败
+              //   (inFlight 被删),fall through 创建新。
               let inFlight = inFlightGenerations.get(placeholderId);
-              if (inFlight && !inFlight.stream) {
+              if (inFlight && !inFlight.stream && streamReadyResolvers.get(placeholderId) !== myResolver) {
                 console.log(
-                  `[chat] cs-round-060 v2 await stream-ready assistantMsgId=${placeholderId} (else 分支 in-flight pending)`,
+                  `[chat] cs-round-060 v3 await stream-ready assistantMsgId=${placeholderId} (else 分支 in-flight pending,其他 POST 在跑)`,
                 );
                 await streamReadyByMsg.get(placeholderId);
                 inFlight = inFlightGenerations.get(placeholderId);
