@@ -41,6 +41,10 @@ interface ChatBodyExtend {
   topK?: number;
   /** cs-round-011:续推起点。提供时跳过创建 placeholder,改成 PATCH 这条已有 message */
   continueFromMessageId?: number;
+  /** cs-round-056:首条 user msg 文本(createSession 时已透传给 upsert,chat route 据此跳过自己的 appendMessage) */
+  firstUserMessage?: string;
+  /** cs-round-056:首条 user msg parts(同上,跳过时不需要,但保留以便对称) */
+  firstUserMessageParts?: unknown;
 }
 
 /**
@@ -328,8 +332,16 @@ export async function POST(req: Request) {
       // 跳过 appendMessage,避免 cs_message 多一条 status=1 content='' 的污染 row。
       // 注:messages / lastUserMessage / streamText 上下文都不动 —— streamText
       // 仍能从 body.messages 拿到那条合成 user,正常开始生成 assistant 流。
+      // cs-round-056:createSession 同步已把首条 user msg 写入 cs_message(role=user, status=1)。
+      //   这里看到 body.firstUserMessage → 跳过自己的 appendMessage(user),避免重复。
+      //   多轮对话(2nd/3rd)createSession 不触发,body.firstUserMessage 不传 → 照常写。
       const lastParts = (lastUserMessage as unknown as { parts?: TextPart[] })?.parts ?? [];
-      if (isEffectivelyEmptyUserMessage(queryText, lastParts as unknown[])) {
+      const skipByUpsert = !!body.firstUserMessage;
+      if (skipByUpsert) {
+        console.log(
+          `[chat] skip user appendMessage sessionId=${sessionId} (upsert already wrote firstUserMessage)`,
+        );
+      } else if (isEffectivelyEmptyUserMessage(queryText, lastParts as unknown[])) {
         console.warn(
           `[chat] skip empty user appendMessage sessionId=${sessionId} (useAutoResumeStreaming 续推 trigger,非真用户提问) id=${String(lastUserMessage?.id ?? '')}`,
         );

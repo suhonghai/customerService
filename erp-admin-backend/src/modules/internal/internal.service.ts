@@ -163,13 +163,23 @@ export class InternalService {
   //   cs-round-001(2026-07-31):messageCount 由 appendMessage 维护(单一真相),
   //   upsertSession 只同步 userId / customerId / visitorName 元数据。
   //   历史行为:这里 increment 是"调用次数"——已废弃,见 docs/ssd-status.md。
+  //
+  //   cs-round-056(2026-08-18):首条 user msg 同步落库 —
+  //     dto.firstUserMessage 非空时,在同一 Prisma $transaction 内写 cs_message
+  //     (role='user', status=1) + messageCount +1。事务提交后再 emit WS user_message
+  //     (对齐 appendMessage 的 emit 行为,erp-admin 运营实时看到客户新问题)。
+  //     修复「点发送立即刷新 → session row 有但 cs_message 0 条 → /history 空 → welcome 页」。
   // ============================================================
   async upsertSession(dto: UpsertSessionDto) {
     const visitorName = dto.visitorName ?? `访客-${dto.visitorId.slice(0, 8)}`;
     const channel = dto.channel ?? 1;
 
-    return this.prisma.csSession
-      .upsert({
+    // cs-round-056:事务内写首条 user msg + 返回 [session, createdMessage]
+    // 用 tuple 而不是闭包变量 — TypeScript 控制流分析能可靠追踪 tx callback 内
+    // 的赋值,避免 `createdMessage: never` 类型推断 bug(闭包变量在 tx 回调里赋值
+    // 后,callback 外 if 判断时 TS 误判为 never)。
+    const txResult = await this.prisma.$transaction(async (tx) => {
+      const s = await tx.csSession.upsert({
         where: { sessionKey: dto.sessionKey },
         update: {
           // 已有会话:同步元数据(messageCount 由 appendMessage 维护)
@@ -189,14 +199,58 @@ export class InternalService {
           ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
           ...(dto.title ? { visitorName: dto.title } : {}),
         },
-      })
-      .then(async (session) => {
-        // cs-round-002:被动触发 reaper,fire-and-forget(不阻塞主路径)
-        this.reapStaleStreaming().catch((e) =>
-          this.logger.warn(`upsertSession 后台 reaper 失败: ${(e as Error).message}`),
-        );
-        return session;
       });
+
+      // cs-round-056:首条 user msg 同步落库(同一事务,与 session atomic)
+      // 仅当 dto.firstUserMessage 是非空字符串时才写(防御空串 / whitespace)
+      const firstMsg = dto.firstUserMessage?.trim();
+      if (firstMsg) {
+        const created = await tx.csMessage.create({
+          data: {
+            sessionId: s.id,
+            role: 'user',
+            content: firstMsg,
+            parts: dto.firstUserMessageParts as Prisma.InputJsonValue | undefined,
+            status: 1,
+          },
+        });
+        // messageCount +1(对齐 cs-round-001 单一真相)
+        await tx.csSession.update({
+          where: { id: s.id },
+          data: { messageCount: { increment: 1 } },
+        });
+        return { session: s, createdMessage: created };
+      }
+      return { session: s, createdMessage: null };
+    });
+
+    const { session, createdMessage } = txResult;
+
+    // 事务提交后再做 WS emit(不能在 tx 内 — emit 是 IO,必须事务已落库)
+    if (createdMessage) {
+      try {
+        this.realtime.server
+          .to(`session:${session.id}`)
+          .emit('user_message', {
+            sessionId: session.id,
+            messageId: createdMessage.id,
+            role: 'user',
+            content: createdMessage.content,
+            status: createdMessage.status,
+            createdAt: new Date().toISOString(),
+          } as any);
+      } catch (e) {
+        this.logger.warn(
+          `upsertSession user_message emit 失败 session=${session.id}: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    // cs-round-002:被动触发 reaper,fire-and-forget(不阻塞主路径)
+    this.reapStaleStreaming().catch((e) =>
+      this.logger.warn(`upsertSession 后台 reaper 失败: ${(e as Error).message}`),
+    );
+    return session;
   }
 
   // ============================================================

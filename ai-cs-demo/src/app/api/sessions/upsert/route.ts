@@ -25,6 +25,9 @@ export async function POST(req: NextRequest) {
       userId?: number | null; // V1 S5:已登录用户的 userId(透传给后端)
       // cs-round-055:C 端账号必须透传给后端,落到 cs_session.customer_id(与 userId 互斥)
       customerId?: number | null;
+      // cs-round-056:首条 user msg 同步落库(防孤儿空会话);透传给 erp client
+      firstUserMessage?: string;
+      firstUserMessageParts?: unknown;
     };
     if (!body.sessionKey || !body.visitorId) {
       return NextResponse.json({ error: 'sessionKey 和 visitorId 必填' }, { status: 400 });
@@ -40,6 +43,9 @@ export async function POST(req: NextRequest) {
       // cs-round-055:C 端 CsCustomer.id 透传(后端落到 cs_session.customer_id)
       customerId:
         typeof body.customerId === 'number' ? body.customerId : undefined,
+      // cs-round-056:首条 user msg 透传(后端事务内落 cs_message + messageCount +1)
+      firstUserMessage: body.firstUserMessage,
+      firstUserMessageParts: body.firstUserMessageParts,
     });
     return NextResponse.json({ id: session.id });
   } catch (e) {

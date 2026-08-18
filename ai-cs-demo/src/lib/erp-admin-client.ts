@@ -172,6 +172,11 @@ export class ErpAdminClient {
      * 过滤,避开 CsCustomer.id 撞 User.id 命名空间的 bug。
      */
     customerId?: number | null;
+    /** cs-round-056:首条 user msg 文本。新会话建立时透传给后端,同一事务落
+     *  cs_message(role='user', status=1),防「点发送立即刷新」孤儿空会话。 */
+    firstUserMessage?: string;
+    /** cs-round-056:首条 user msg 的 AI SDK UI Message parts(透传给 cs_message.parts)。 */
+    firstUserMessageParts?: unknown;
   }): Promise<SessionInfo> {
     return this.request<SessionInfo>('/api/internal/cs/sessions', {
       method: 'POST',

@@ -7,6 +7,12 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
  * ai-cs-demo 在每次对话时调用:
  * - 同一 sessionKey 重复调用 = 累加 messageCount(只是计数,实际消息走 appendMessage)
  * - 首次调用 = 创建 session
+ *
+ * cs-round-056:首条 user msg 同步落库 — 防止「点发送 + 立即刷新」产生孤儿空会话
+ *   (session row 已有但 cs_message 0 条,/history 返回空数组 → welcome 页)。
+ *   firstUserMessage + firstUserMessageParts 在同一 Prisma $transaction 内写入
+ *   cs_message(role='user', status=1)。ai-cs /api/chat 看到 firstUserMessage 字段
+ *   时跳过自己的 appendMessage(user),避免重复。
  */
 export class UpsertSessionDto {
   @IsString()
@@ -49,4 +55,17 @@ export class UpsertSessionDto {
   @IsOptional()
   @MaxLength(100)
   title?: string;
+
+  /** cs-round-056:首条 user msg 文本。新会话建立时若传此字段,会在同一事务内写入
+   *  cs_message(role='user', status=1),防「点发送立即刷新」孤儿空会话。
+   *  @db.Text 存长文本,前端截 30 字做 title。 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  firstUserMessage?: string;
+
+  /** cs-round-056:首条 user msg 的 AI SDK UI Message parts(透传给 cs_message.parts)。
+   *  形状:Array<{type:'text', text:string}> 等。AI SDK 6.x 结构,不强 schema 校验。 */
+  @IsOptional()
+  firstUserMessageParts?: unknown;
 }

@@ -201,6 +201,13 @@ export function useSessions() {
       title?: string;
       sessionKey?: string;
       /**
+       * cs-round-056:首条 user msg 同步落库。createSession 透传 text + parts 给
+       * /api/sessions/upsert,后端同一事务内写 cs_message(role='user', status=1) +
+       * messageCount +1。防「点发送立即刷新」孤儿空会话(/history 空 → welcome 页)。
+       * 不传 → 旧行为,只建 session row,user msg 等 chat route appendMessage。
+       */
+      userMessage?: { text: string; parts: unknown[] };
+      /**
        * cs-round-015:upsert 异步成功(拿到真 backendId)时触发。
        * 用途:RAGChat 在此 callback 内 `router.replace('/chat/${backendId}')`,
        *      把 URL 从 tempId 切到 backendId(URL 是 activeId 真相源,必须同步)。
@@ -217,7 +224,7 @@ export function useSessions() {
         id: tempId,
         sessionKey,
         title: opts?.title ?? DEFAULT_TITLE,
-        messageCount: 0,
+        messageCount: opts?.userMessage ? 1 : 0, // cs-round-056:有 userMessage 时立即 1
         startedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -239,6 +246,9 @@ export function useSessions() {
               // cs-round-055:补 userId/customerId(已登录时落到 cs_session,防孤儿)
               userId: getClientUserId() ?? undefined,
               customerId: getClientCustomerId() ?? undefined,
+              // cs-round-056:首条 user msg 同步落库(防孤儿空会话)
+              firstUserMessage: opts?.userMessage?.text,
+              firstUserMessageParts: opts?.userMessage?.parts,
             }),
           });
           if (!res.ok) {

@@ -326,6 +326,11 @@ export function RAGChat() {
     // 立刻 sendMessage。后端 upsert 异步进行,backendId 异步到位后 sidebar 自动更新。
     let currentActiveId = activeId;
     let currentSessionKey: string | null = activeSession?.sessionKey ?? null;
+    // cs-round-056:仅新建会话时,透传 firstUserMessage 到 sendMessage body,
+    // 让 chat route 看到后跳过自己的 appendMessage(user)(防 upsert + chat 双写)。
+    // 多轮对话(2nd/3rd)createSession 不触发,这里 firstUserMessage 留空 → chat route 正常写。
+    let firstUserMessage: string | undefined;
+    let firstUserMessageParts: unknown[] | undefined;
     if (!currentActiveId) {
       const userMsg = { role: 'user' as const, parts: [{ type: 'text' as const, text }] };
       const title = deriveTitleFromMessage(
@@ -334,13 +339,19 @@ export function RAGChat() {
       // 同步:createSession 立即 setActiveId(tempId) + 立即返回 sessionKey
       // cs-round-015:onCommit 在 upsert 拿到真 backendId 时触发 → router.replace
       // 把 URL 从 tempId 切到 backendId(URL 是 activeId 真相源,不能停在 tempId)。
+      // cs-round-056:userMessage.text + userMessage.parts 透传给 createSession,
+      // 由 createSession 发 upsert 时落 cs_message(role=user, status=1)+ messageCount +1。
       const { sessionKey, tempId } = createSession({
         title,
+        userMessage: { text, parts: userMsg.parts },
         onCommit: (backendId) => router.replace(`/chat/${backendId}`),
       });
       currentActiveId = String(tempId);
       currentSessionKey = sessionKey;
       router.replace(`/chat/${tempId}`);
+      // cs-round-056:把首条消息标记带到 sendMessage body,chat route 据此跳过 appendMessage
+      firstUserMessage = text;
+      firstUserMessageParts = userMsg.parts;
     }
     sendMessage(
       { text },
@@ -351,6 +362,9 @@ export function RAGChat() {
           visitorId: visitorIdRef.current ?? 'anon',
           userId,
           customerId,
+          // cs-round-056:仅首条消息时设,chat route 看到即跳过自己写 user msg
+          firstUserMessage,
+          firstUserMessageParts,
         },
       },
     );
