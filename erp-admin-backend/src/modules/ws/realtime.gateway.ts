@@ -86,7 +86,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.socketToSession.set(socket.id, session.id);
     // DEBUG-CSR066:server 实际类型 + namespace.name + 是否有 .of() 方法
     const srv = this.server as unknown as { name?: string; of?: unknown; nsp?: { name?: string } };
-    this.logger.log(
+    this.logger.warn(
       `[DEBUG-CSR066] socket ${socket.id} joined session:${session.id} server.type=${srv?.constructor?.name} socket.nsp.name=${socket.nsp?.name} server.hasOf=${typeof srv?.of}`,
     );
   }
