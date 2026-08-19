@@ -45,6 +45,10 @@ services:
       JWT_EXPIRES_IN: "3600"
       JWT_REFRESH_EXPIRES_IN: "604800"
       LOG_LEVEL: "warn"
+      # [cs-round-069] UPLOAD_DIR 必须指向 backend_uploads volume 挂载点
+      # (/data/uploads),否则 code 默认 fallback 到 /tmp/erp-admin-uploads,
+      # volume 形同虚设,容器 rebuild/restart 后所有上传文件丢失。
+      UPLOAD_DIR: /data/uploads
     expose:
       - "3001"
     # 注意:已删除 ports: "${BACKEND_PORT}:3001",后端不再直暴露
