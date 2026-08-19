@@ -25,15 +25,17 @@ export function MessageInput({
   isLoading,
   onStop,
 }: MessageInputProps) {
-  // cs-round-061:Enter 只 preventDefault(阻止 native 换行),不直接调 onSubmit()。
-  // 浏览器 HTML spec implicit submission 规则(form 有 default submit button 时,
-  // Enter 模拟 click 该 button)会触发 native submit event → React 调度 form
-  // onSubmit → handleSubmit → onSubmit() 1 次。两次 onSubmit 都调会创建 2 个
-  // user msg + 2 个 assistant msg,2 个并发 POST /api/chat,UI 出现 2 条 AI 回答。
+  // cs-round-061:Enter 不直接调 onSubmit()(避免 button click + implicit submit 双源)
+  // cs-round-065:不再依赖浏览器 HTML spec implicit submission(Enter 模拟 click
+  //   default submit button)— e.preventDefault() 同时阻止了 implicit submission,
+  //   prod 真实浏览器 Enter 完全无响应。修法:preventDefault 后显式调
+  //   `form.requestSubmit()` 触发 submit event。`requestSubmit()` 是 programmatic
+  //   submit,**不**经 button.click,所以即使 `<button disabled>` 也能触发 submit
+  //   event(覆盖了 cs-round-061 没考虑到的"按钮 disabled + Enter 不发"边界)。
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      // 不调 onSubmit() — 留给 form onSubmit 单源触发
+      e.currentTarget.form?.requestSubmit()
     }
   }
 

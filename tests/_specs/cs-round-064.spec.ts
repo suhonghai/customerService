@@ -1,5 +1,5 @@
 /**
- * @status pending
+ * @status implemented
  * @change-id cs-round-064
  * @incident-id (TBD)
  * @incident-date 2026-08-19

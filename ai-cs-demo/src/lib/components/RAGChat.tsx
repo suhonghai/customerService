@@ -197,7 +197,11 @@ export function RAGChat() {
       try {
         const restored = await refetchSessionHistory(sid);
         if (restored.length === 0) return;
-        setMessages(restored);
+        // cs-round-065:diff/append 而非覆盖 — 保留本地 useChat 正在流式的 placeholder,
+        // 避免 setMessages(restored) 把 metadata.isStreaming 复位导致
+        // useAutoResumeStreaming 误触发续推(POST /api/chat 多次调用)。
+        // 与 onRecover 路径(line ~274)行为对齐。
+        setMessages((prev) => dedupeMessagesByContent([...prev, ...restored]));
       } catch (e) {
         console.warn('[page] ws refetch failed:', (e as Error).message);
       }
