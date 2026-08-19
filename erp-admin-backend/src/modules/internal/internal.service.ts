@@ -304,11 +304,16 @@ export class InternalService {
     // 事务提交后再做 WS emit(不能在 tx 内 — emit 是 IO,必须事务已落库)
     if (createdMessage) {
       try {
-        // cs-round-066:显式 .of('/realtime') 修饰 emit — gateway 是 namespace gateway
-        // (/realtime),client 都在该 namespace;server.to(room) 是 root server 路径,
-        // 与 namespace.to(room) 是两个隔离的 broadcast group,不互通。显式 .of 跨版本/场景安全。
+        // cs-round-066:emit 必须打到 /realtime namespace(ai-cs-demo + erp 的 client 都连
+        //   这个 namespace)。NestJS @WebSocketServer() 在 namespace gateway 下注入的是
+        //   该 namespace 实例(不是 root Server),不能 .of('/realtime') — Namespace 类
+        //   没 .of 方法(只 Server 有)。直接用 this.realtime.server.to(room).emit(...)
+        //   就是该 namespace 的 broadcast。Server.to() 返回 BroadcastOperator,接收
+        //   room 名 + event + payload,在该 namespace 内的 room 找匹配的 socket。
+        //   注意:这里 this.realtime.server 是 Namespace 实例(socket.io v4 实测),
+        //   .to(room).emit() 在该 namespace 的 room 集合里查询。
+        //   prod session 119 验证:server.type=Namespace server.nsp.name=/realtime。
         this.realtime.server
-          .of('/realtime')
           .to(`session:${session.id}`)
           .emit('user_message', {
             sessionId: session.id,
@@ -377,8 +382,8 @@ export class InternalService {
 
     // emit user_message to session room so operators see new customer msg live
     if (dto.role === 'user') {
-      // cs-round-066:显式 .of('/realtime')(同 upsertSession 路径,见 line ~307)
-      this.realtime.server.of('/realtime').to(`session:${sessionId}`).emit('user_message', {
+      // cs-round-066:同 upsertSession 注释 — this.realtime.server 已是 namespace 实例,直接 .to().emit()
+      this.realtime.server.to(`session:${sessionId}`).emit('user_message', {
         sessionId,
         messageId: created.id,
         role: 'user',
@@ -713,8 +718,8 @@ export class InternalService {
         // (否则 useEffect mount 时 ticket 还没创建 → 永远 false,banner 永不显示)
         if (sessionRow?.id) {
           try {
-            // cs-round-066:显式 .of('/realtime')(同上)
-            this.realtime.server.of('/realtime').to(`session:${sessionRow.id}`).emit('ticket_created', {
+            // cs-round-066:同上
+            this.realtime.server.to(`session:${sessionRow.id}`).emit('ticket_created', {
               ticketId: ticket.id,
               ticketNo: ticket.ticketNo,
               status: ticket.status,
@@ -841,8 +846,8 @@ export class InternalService {
     // emit WS 给 session room
     for (const m of stale) {
       try {
-        // cs-round-066:显式 .of('/realtime')(同上)
-        this.realtime.server.of('/realtime').to(`session:${m.sessionId}`).emit('message_status', {
+        // cs-round-066:同上
+        this.realtime.server.to(`session:${m.sessionId}`).emit('message_status', {
           messageId: m.id,
           sessionId: m.sessionId,
           status: 4,
@@ -967,8 +972,8 @@ export class InternalService {
     // 4. WS emit ticket_closed(同 ticket.service.updateStatus status=4 路径的 payload schema)
     if (updated.sessionId) {
       try {
-        // cs-round-066:显式 .of('/realtime')(同上)
-        this.realtime.server.of('/realtime').to(`session:${updated.sessionId}`).emit('ticket_closed', {
+        // cs-round-066:同上
+        this.realtime.server.to(`session:${updated.sessionId}`).emit('ticket_closed', {
           ticketId: updated.id,
           ticketNo: updated.ticketNo,
           status: 4,
