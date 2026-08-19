@@ -9,6 +9,12 @@ import type { UIMessage } from 'ai';
  * SSE 流,parse 出 UI Message Stream chunks(text-delta 等),把新 text
  * append 到 useChat 的 messages 里 id=continueFromMessageId 那条上。
  *
+ * cs-round-062:触发条件从「只认 isStreaming」扩展为「isStreaming OR isError」
+ * — DB status=4(content 空,AI 写一半异常中断)的消息也能触发续推。修前
+ * status=4 → 前端 storedToUIMessages 不标 isStreaming → 钩子跳过 → 用户
+ * 刷新进来看到空气泡。后端 chat/route.ts:550-555 一直允许续推 status=4,
+ * 本次只是补齐前端触发条件。
+ *
  * 与 useChat 默认 transport 互不干扰:
  *  - 自动续推走 manual fetch + setMessages,绕开 useChat 的 sendMessage。
  *  - 用户主动发新消息 / 点「重新生成」时,useChat 的 messages 里有 update 触发,
@@ -55,7 +61,10 @@ export function useAutoResumeStreaming({
     for (const m of messages) {
       if (!m || m.role !== 'assistant') continue;
       const meta = (m.metadata as unknown as StreamingMsgMeta) || {};
-      if (!meta.isStreaming) continue;
+      // cs-round-062:isStreaming OR isError 都触发续推 — DB status=4(content 空)
+      // 也能恢复。后端 chat/route.ts 续推分支允许 status ∈ {2, 4}。
+      // status=3 (aborted) 不在此处触发,storedToUIMessages 没标 isError 也没 isStreaming。
+      if (!meta.isStreaming && !meta.isError) continue;
       if (!meta.continueFromMessageId) continue;
       if (resumedRef.current.has(m.id)) continue;
       // 触发
