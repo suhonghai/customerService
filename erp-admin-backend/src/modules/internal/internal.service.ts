@@ -304,7 +304,11 @@ export class InternalService {
     // 事务提交后再做 WS emit(不能在 tx 内 — emit 是 IO,必须事务已落库)
     if (createdMessage) {
       try {
+        // cs-round-066:显式 .of('/realtime') 修饰 emit — gateway 是 namespace gateway
+        // (/realtime),client 都在该 namespace;server.to(room) 是 root server 路径,
+        // 与 namespace.to(room) 是两个隔离的 broadcast group,不互通。显式 .of 跨版本/场景安全。
         this.realtime.server
+          .of('/realtime')
           .to(`session:${session.id}`)
           .emit('user_message', {
             sessionId: session.id,
@@ -373,7 +377,8 @@ export class InternalService {
 
     // emit user_message to session room so operators see new customer msg live
     if (dto.role === 'user') {
-      this.realtime.server.to(`session:${sessionId}`).emit('user_message', {
+      // cs-round-066:显式 .of('/realtime')(同 upsertSession 路径,见 line ~307)
+      this.realtime.server.of('/realtime').to(`session:${sessionId}`).emit('user_message', {
         sessionId,
         messageId: created.id,
         role: 'user',
@@ -708,7 +713,8 @@ export class InternalService {
         // (否则 useEffect mount 时 ticket 还没创建 → 永远 false,banner 永不显示)
         if (sessionRow?.id) {
           try {
-            this.realtime.server.to(`session:${sessionRow.id}`).emit('ticket_created', {
+            // cs-round-066:显式 .of('/realtime')(同上)
+            this.realtime.server.of('/realtime').to(`session:${sessionRow.id}`).emit('ticket_created', {
               ticketId: ticket.id,
               ticketNo: ticket.ticketNo,
               status: ticket.status,
@@ -835,7 +841,8 @@ export class InternalService {
     // emit WS 给 session room
     for (const m of stale) {
       try {
-        this.realtime.server.to(`session:${m.sessionId}`).emit('message_status', {
+        // cs-round-066:显式 .of('/realtime')(同上)
+        this.realtime.server.of('/realtime').to(`session:${m.sessionId}`).emit('message_status', {
           messageId: m.id,
           sessionId: m.sessionId,
           status: 4,
@@ -960,7 +967,8 @@ export class InternalService {
     // 4. WS emit ticket_closed(同 ticket.service.updateStatus status=4 路径的 payload schema)
     if (updated.sessionId) {
       try {
-        this.realtime.server.to(`session:${updated.sessionId}`).emit('ticket_closed', {
+        // cs-round-066:显式 .of('/realtime')(同上)
+        this.realtime.server.of('/realtime').to(`session:${updated.sessionId}`).emit('ticket_closed', {
           ticketId: updated.id,
           ticketNo: updated.ticketNo,
           status: 4,

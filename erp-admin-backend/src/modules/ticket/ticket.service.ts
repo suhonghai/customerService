@@ -421,7 +421,9 @@ export class TicketService {
 
     // cs-round-036:status=4 (close) 时 WS emit ticket_closed,让 ai-cs + erp 前台实时切终止 UI
     if (to === 4 && updated.sessionId) {
+      // cs-round-066:显式 .of('/realtime') 修饰 — 同 internal.service 注释
       this.realtime.server
+        .of('/realtime')
         .to(`session:${updated.sessionId}`)
         .emit('ticket_closed', {
           ticketId: updated.id,
@@ -513,7 +515,8 @@ export class TicketService {
       });
 
       // NEW: realtime push to ai-cs-demo subscribers of this session
-      this.realtime.server.to(`session:${exist.sessionId}`).emit('operator_reply', {
+      // cs-round-066:显式 .of('/realtime') 修饰 — 同 internal.service 注释
+      this.realtime.server.of('/realtime').to(`session:${exist.sessionId}`).emit('operator_reply', {
         sessionId: exist.sessionId,
         messageId: created.id,
         role: 'assistant',
