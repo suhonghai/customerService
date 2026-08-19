@@ -36,6 +36,15 @@ export interface UseChatStateOptions {
    * RAGChat 用它在 ChatView 上显示「正在加载」,避免 paint 上一会话的旧消息。
    */
   setHistoryLoading: (loading: boolean) => void;
+  /**
+   * cs-round-064:useChat 的 status。activeId 从 draft/tempId 切到 backendId 时,
+   * 若 status 是 'submitted'/'streaming'(本地正在流),跳过 fetch /history —
+   * 否则 /history 拉回的 status=2 placeholder 与本地 useChat 流的 placeholder
+   * 是两条 msg,触发 useAutoResumeStreaming 误续推(chat #2)。
+   *
+   * 切会话 / 刷新场景 status='ready' 或 'error' → 仍走 fetch(本字段无效)。
+   */
+  chatStatus?: 'submitted' | 'streaming' | 'ready' | 'error';
 }
 
 export interface UseChatStateResult {
@@ -57,12 +66,23 @@ export function useChatState({
   activeId,
   setMessages,
   setHistoryLoading,
+  chatStatus,
 }: UseChatStateOptions): UseChatStateResult {
   const [abortedIds, setAbortedIds] = useState<Set<string>>(new Set());
   const [escalationMap, setEscalationMap] = useState<
     Record<string, { escalationId: string; estimatedWaitMinutes: number; urgency: string }>
   >({});
   const [backendSessionId, setBackendSessionId] = useState<number | null>(null);
+
+  // cs-round-064:同步 chatStatus 到 ref,避免 status 变化触发 activeId effect 重跑
+  // (status 在 sendMessage 期间 'submitted'→'streaming'→'ready' 会变 2-3 次,
+  //  如果进 deps 会让 activeId effect 重复跑甚至多 fetch)。
+  const chatStatusRef = useRef<'submitted' | 'streaming' | 'ready' | 'error' | undefined>(
+    chatStatus,
+  );
+  useEffect(() => {
+    chatStatusRef.current = chatStatus;
+  }, [chatStatus]);
 
   // cs-round-021:history fetch dedupe refs —
   //   fetchedSessionIdsRef:已成功 fetch 完的 sessionId(防御 StrictMode dev 双调 effect)
@@ -149,6 +169,23 @@ export function useChatState({
       setMessages([]);
     }
     setBackendSessionId(backendIdNum);
+
+    // cs-round-064:跳过 fetch /history(治本 — history #2 不该被调)
+    //   条件:useChat 在流(status='submitted'/'streaming')
+    //       + prev 是 null(draft)或负数 tempId(createSession 同步路径留下的中间态)
+    //   意义:新建会话 sendMessage 进行中,本地 useChat 已经在流式填 user msg +
+    //     assistant placeholder。fetch /history 会拉回 DB 的 status=2 placeholder
+    //     (id=DB id)与本地 placeholder (id=client id)是两条 msg → useAutoResumeStreaming
+    //     误触发续推(POST /api/chat 第二遍,叫 chat #2)。
+    //   切会话 / 刷新场景 status='ready' 或 'error' → 不进此分支,正常 fetch。
+    if (
+      (chatStatusRef.current === 'submitted' || chatStatusRef.current === 'streaming') &&
+      (prevActiveIdBeforeUpdate === null ||
+        (typeof prevActiveIdBeforeUpdate === 'string' &&
+          /^-/.test(prevActiveIdBeforeUpdate)))
+    ) {
+      return;
+    }
 
     void (async () => {
       try {

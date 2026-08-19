@@ -110,7 +110,16 @@ export function RAGChat() {
   const [historyLoading, setHistoryLoading] = useState(false);
 
   const { abortedIds, setAbortedIds, escalationMap, setEscalationMap, backendSessionId } =
-    useChatState({ activeId, setMessages, setHistoryLoading });
+    useChatState({
+      activeId,
+      setMessages,
+      setHistoryLoading,
+      // cs-round-064:把 useChat status 传给 useChatState,新建会话 sendMessage
+      // 进行中(activeId 从 draft/tempId 切到 backendId 时)跳过 fetch /history,
+      // 避免 /history 拉回的 status=2 placeholder 触发 useAutoResumeStreaming
+      // 误续推(POST /api/chat 第二遍)。
+      chatStatus: status,
+    });
 
   // cs-round-036 UX 修正:判断"工单 OPEN 状态"用 ticket 真实状态,不再用 messages.operator 推断
   // (旧判断 bug:工单 OPEN 但客服从未回复时 banner 不显示;关单后 banner 仍显示)
