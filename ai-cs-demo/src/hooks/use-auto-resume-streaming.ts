@@ -153,14 +153,11 @@ async function resumeOne(args: {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Internal-Token': '' },
+        // cs-round-063:不再发合成空 user 消息(cs-round-011 时代的 hack)。
+        //   真正的 resume 信号是 `continueFromMessageId`,后端 chat route
+        //   看到它会从 DB 加载原 user 消息作 LLM context(多轮对话也完整)。
+        //   body 只发会话上下文 + continueFromMessageId,不污染 LLM 上下文。
         body: JSON.stringify({
-          messages: [
-            {
-              id: `m_continue_${continueFromMessageId}`,
-              role: 'user',
-              parts: [{ type: 'text', text: '' }],
-            },
-          ],
           sessionKey,
           visitorId,
           userId,

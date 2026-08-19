@@ -307,11 +307,13 @@ export async function POST(req: Request) {
     let continueFromInitialParts: unknown[] = [];
     let continueFromStatus = 0;
 
-    // 兼容两种 payload shape:
+    // 兼容三种 payload shape:
     //  1) { messages: UIMessage[] } — AI SDK 6.x 客户端(多轮历史)
     //  2) { message: string }        — 早期 / 自定义客户端(单条)
-    // 两种都缺 → 400,不再 500
-    let messages: UIMessage[];
+    //  3) { continueFromMessageId }  — 续推,cs-round-063 新增,允许 messages/message 都为空
+    //     后端从 DB 加载原 user 消息作 LLM context(见下方续推分支)
+    // 1/2 都缺且不是续推 → 400,不再 500
+    let messages: UIMessage[] = [];
     if (Array.isArray(body.messages) && body.messages.length > 0) {
       messages = body.messages;
     } else if (typeof body.message === 'string' && body.message.trim().length > 0) {
@@ -322,16 +324,21 @@ export async function POST(req: Request) {
           parts: [{ type: 'text', text: body.message }],
         } as unknown as UIMessage,
       ];
+    } else if (typeof body.continueFromMessageId === 'number' && body.continueFromMessageId > 0) {
+      // cs-round-063:续推 case 允许空 messages — 后端从 DB 加载原 user 消息作 LLM context
+      // 前端不需要再发合成空 user 消息(那是 cs-round-011 时代的 hack,11 个月传承)
+      messages = []; // placeholder,续推分支(line 535+)会从 DB 重新构造
     } else {
       return new Response(
-        JSON.stringify({ error: 'payload must include `message` (string) or `messages` (array)' }),
+        JSON.stringify({ error: 'payload must include `message` (string) or `messages` (array) or `continueFromMessageId` (number)' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       );
     }
 
     // 拿最后一条用户消息作为查询(防御:加 ?? [])
     const lastUserMessage = [...messages].reverse().find((m) => m && m.role === 'user');
-    const queryText =
+    // cs-round-063:queryText 改为 let,允许续推分支从 DB 加载后重算
+    let queryText =
       (lastUserMessage?.parts ?? [])
         .filter((p: TextPart) => p && p.type === 'text' && typeof p.text === 'string')
         .map((p: TextPart) => p.text)
@@ -373,11 +380,20 @@ export async function POST(req: Request) {
       // cs-round-056:createSession 同步已把首条 user msg 写入 cs_message(role=user, status=1)。
       //   这里看到 body.firstUserMessage → 跳过自己的 appendMessage(user),避免重复。
       //   多轮对话(2nd/3rd)createSession 不触发,body.firstUserMessage 不传 → 照常写。
+      // cs-round-063:用 continueFromMessageId 作更精确的判断 — 续推时 user msg 已在 DB,
+      //   必须跳过。前端已不发合成空 user 消息(改由后端从 DB 加载 context),所以
+      //   这里的 isEffectivelyEmptyUserMessage 兜底实际上已不可达,保留作 defense-in-depth。
       const lastParts = (lastUserMessage as unknown as { parts?: TextPart[] })?.parts ?? [];
       const skipByUpsert = !!body.firstUserMessage;
+      const skipByResume =
+        typeof body.continueFromMessageId === 'number' && body.continueFromMessageId > 0;
       if (skipByUpsert) {
         console.log(
           `[chat] skip user appendMessage sessionId=${sessionId} (upsert already wrote firstUserMessage)`,
+        );
+      } else if (skipByResume) {
+        console.log(
+          `[chat] skip user appendMessage sessionId=${sessionId} (续推 case,user msg 已在 DB,cs-round-063)`,
         );
       } else if (isEffectivelyEmptyUserMessage(queryText, lastParts as unknown[])) {
         console.warn(
@@ -563,6 +579,53 @@ export async function POST(req: Request) {
           console.log(
             `[chat] continueFromMessageId=${assistantMsgId} status=${existing.status} contentLen=${(existing.content || '').length} → 续推`,
           );
+
+          // cs-round-063:从 DB 加载**完整**会话上下文作为 LLM 输入。
+          //   前端 resume 请求不再发合成空 user 消息(cs-round-011 hack 已废弃),
+          //   改为后端从 DB 拿:取 failed assistant 之前的所有 user + assistant 消息,
+          //   喂给 streamText。多轮对话也能 work(后续 user-assistant 链完整)。
+          //   失败兜底:DB 加载失败时仍让 fallthrough 走空 messages(LLM 也会报
+          //   NoOutput,但不会让整个请求崩)。
+          try {
+            const sessionMsgs = await erp.getSessionMessages(sessionId);
+            const assistantIdx = sessionMsgs.findIndex((m) => m.id === assistantMsgId);
+            if (assistantIdx > 0) {
+              const contextMsgs = sessionMsgs.slice(0, assistantIdx);
+              messages = contextMsgs.map((m) => ({
+                id: String(m.id),
+                role: m.role as 'user' | 'assistant',
+                parts:
+                  Array.isArray(m.parts) && (m.parts as unknown[]).length > 0
+                    ? (m.parts as unknown as Array<{ type: string; text?: string }>)
+                    : [{ type: 'text', text: m.content || '' }],
+              })) as unknown as UIMessage[];
+              // 重算 queryText 为最后一条 user 消息 — RAG retrieval 拿正确查询
+              const lastUserInContext = [...messages].reverse().find(
+                (mm) => mm && mm.role === 'user',
+              );
+              if (lastUserInContext) {
+                queryText = ((lastUserInContext.parts ?? []) as Array<{
+                  type?: string;
+                  text?: string;
+                }>)
+                  .filter((p) => p.type === 'text' && typeof p.text === 'string')
+                  .map((p) => p.text as string)
+                  .join('');
+              }
+              console.log(
+                `[chat] cs-round-063 resume loaded ${messages.length} context msgs from DB (assistantIdx=${assistantIdx}, queryTextLen=${queryText.length})`,
+              );
+            } else {
+              console.warn(
+                `[chat] cs-round-063 resume: assistantIdx=${assistantIdx} (会话无前置消息,fallthrough 用空 messages)`,
+              );
+            }
+          } catch (e) {
+            console.warn(
+              '[chat] cs-round-063 resume: failed to load context from DB,fallthrough:',
+              (e as Error).message,
+            );
+          }
 
           // cs-round-060 v2:决定用 assistantMsgId 那一刻就立即注册 tentative inFlight
           //   (stream:null + finished 等 buildStream 完成)— 防止两并发 POST 都看到
