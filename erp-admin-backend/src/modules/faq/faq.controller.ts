@@ -164,6 +164,43 @@ export class FaqController {
   }
 
   /**
+   * POST /api/faq/:id/publish — 别名路由:自动取最新版本 + 发布(内部复用 review)
+   * 解决前端 hook 调 /publish 报 404 的兼容性问题(2026-08-19 加)。
+   * 状态机由 review 保证:已发布版本不能再 publish,会抛 STATE_NOT_ALLOW。
+   */
+  @Post(':id/publish')
+  @HttpCode(200)
+  @RequirePermission('faq:review', 'faq:*')
+  @ApiOperation({ summary: '发布最新版本(别名路由,自动取最新 versionId 调 review)' })
+  async publish(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
+    const versionId = await this.faqService.getLatestVersionId(id);
+    return this.faqService.review(
+      id,
+      { versionId, status: 2 },
+      cu.id,
+      cu.username,
+    );
+  }
+
+  /**
+   * POST /api/faq/:id/offline — 别名路由:自动取最新版本 + 下线(内部复用 review)
+   * 状态机:已发布 → 下线 允许;待审核 → 直接下线 由 review 拒绝(STATE_NOT_ALLOW)。
+   */
+  @Post(':id/offline')
+  @HttpCode(200)
+  @RequirePermission('faq:review', 'faq:*')
+  @ApiOperation({ summary: '下线最新版本(别名路由,自动取最新 versionId 调 review)' })
+  async offline(@Param('id', ParseIntPipe) id: number, @CurrentUser() cu: ICurrentUser) {
+    const versionId = await this.faqService.getLatestVersionId(id);
+    return this.faqService.review(
+      id,
+      { versionId, status: 3 },
+      cu.id,
+      cu.username,
+    );
+  }
+
+  /**
    * DELETE /api/faq/:id — 软删(Chroma 全删)
    */
   @Delete(':id')

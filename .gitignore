@@ -48,6 +48,12 @@ logs/dev-*.log
 # ====== Test cache ======
 .jest-cache/
 
+# ====== Claude Code 本地覆盖(服务器凭证 / 私有约定) ======
+# CLAUDE.local.md 是 Claude Code 官方约定的 local override 文件,
+# 每次新开会话自动读取。绝不入仓(包含 SSH 密码等敏感信息)。
+CLAUDE.local.md
+CLAUDE.local.md.*
+
 # ====== Husky 9 internal shim (auto-generated, do not commit) ======
 .husky/_/
 

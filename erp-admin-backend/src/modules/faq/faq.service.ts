@@ -455,6 +455,21 @@ export class FaqService {
   }
 
   // ============================================================
+  // 取文档最新版本 id(供 controller 别名路由 /publish /offline 自动选版本用)
+  // ============================================================
+  async getLatestVersionId(id: number): Promise<number> {
+    const latest = await this.prisma.faqVersion.findFirst({
+      where: { documentId: id },
+      orderBy: { version: 'desc' },
+      select: { id: true },
+    });
+    if (!latest) {
+      throw new BizException(BizCode.FAQ_NOT_FOUND, '文档没有任何版本');
+    }
+    return latest.id;
+  }
+
+  // ============================================================
   // DELETE /api/faq/:id
   //   - 软删文档 + Chroma 全删
   // ============================================================
