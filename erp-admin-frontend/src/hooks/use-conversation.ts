@@ -63,10 +63,16 @@ function resolveWsUrl(): string {
   // hostname:3001 直连后端,无需 nginx。
   // prod 模式 (docker compose 全容器 + nginx):走 api.suhhai.cn(nginx 已配
   // Upgrade 头 + 反代到 backend:3001,Cookie 同 eTLD+1 自动带上)。
+  //
+  // [cs-round-067] URL 必须以 /realtime 结尾 — socket.io-client 的 namespace
+  // 由 URL path 决定;不带 /realtime 时连 default namespace `/`,而 backend
+  // gateway `@WebSocketGateway({ namespace: '/realtime' })` 注册在 /realtime
+  // namespace,两个 namespace 的 room 完全隔离,emit 永远到不了 default ns 客户端。
+  // 对照 ai-cs-demo/src/lib/realtime-client.ts:75 `io(\`${url}/realtime\`, ...)` 即可。
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `${wsProto}//${hostname}:3001`;
+    return `${wsProto}//${hostname}:3001/realtime`;
   }
-  return `${wsProto}//api.suhhai.cn`;
+  return `${wsProto}//api.suhhai.cn/realtime`;
 }
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
