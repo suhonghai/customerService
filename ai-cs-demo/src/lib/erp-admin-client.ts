@@ -26,6 +26,11 @@ export interface ActiveAiConfig {
   topP: number;
   maxTokens: number;
   systemPrompt: string | null;
+  // cs-round-072:embedModel 必须跟 backend erp-admin active config 一致,
+  // 否则 Chroma 向量空间错位,检索全部命中 0 chunks。
+  // backend internal.service.ts:75 返回 cfg.embedModel,但 ai-cs-demo 这边
+  // interface 没声明 → 漏消费 → 用 env.EMBED_MODEL 兜底 → 模型不一致 → 检索废。
+  embedModel?: string | null;
 }
 
 export interface FaqChunk {

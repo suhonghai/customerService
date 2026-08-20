@@ -67,10 +67,20 @@ export async function initAiFromErpAdmin(): Promise<void> {
       apiKey: cfg.apiKey,
     });
     _chatModel = provider(cfg.modelId);
-    _embedModel = provider.textEmbedding(FALLBACK_EMBED_MODEL);
+    // cs-round-072:必须用 cfg.embedModel(从 erp-admin 拉),不能用 FALLBACK_EMBED_MODEL(env)。
+    //   backend writing Chroma 时也用 cfg.embedModel(`qwen3.7-text-embedding`),
+    //   ai-cs-demo query Chroma 用 `text-embedding-v3` / `text-embedding-v4`
+    //   → 不同 embedding 模型 → 向量空间完全不同 → Chroma 距离全是垃圾 →
+    //   全被 0.3 阈值过滤 → AI 永远说"知识库没收录"。
+    //   实测 prod: erp_faq collection 有 14 chunks(docId=6,7,8,9 都有),
+    //   query "快递一般几天能到" topResults=[]。
+    //   修法跟 backend embedding.service.ts:92 一致(都优先 cfg.embedModel)。
+    _embedModel = provider.textEmbedding(
+      cfg.embedModel || process.env.EMBED_MODEL || FALLBACK_EMBED_MODEL,
+    );
     if (!isTest) {
       console.log(
-        `[ai] inited from erp-admin: modelId=${cfg.modelId} provider=${cfg.provider} baseUrl=${cfg.baseUrl}`,
+        `[ai] inited from erp-admin: modelId=${cfg.modelId} embedModel=${cfg.embedModel} provider=${cfg.provider} baseUrl=${cfg.baseUrl}`,
       );
     }
   } catch (e) {
