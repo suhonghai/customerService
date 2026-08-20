@@ -174,14 +174,50 @@ export class InternalService {
     const visitorName = dto.visitorName ?? `访客-${dto.visitorId.slice(0, 8)}`;
     const channel = dto.channel ?? 1;
 
+    // cs-round-071:Prisma 事务错(P2002/P2034/P2010)是 InnoDB 行锁 + 唯一索引
+    //   竞争不可避免的并发副作用(MySQL REPEATABLE READ 下死锁率随并发度升高)。
+    //   cs-round-058 的 catch 块只兜住 create 阶段的 P2002,update 阶段撞 P2034
+    //   (Transaction failed due to a write conflict or a deadlock)直接漏 →
+    //   NestJS 全局 filter 翻 code=50000 → ai-cs-demo BFF upsert route 再翻 502。
+    //   实测 8 个并发同一 sessionKey:5/8 失败。
+    //   修法:整个 upsertSession 事务外包 retry helper,50-150ms random backoff
+    //   重试 3 次。配合内部 P2002 catch(findUnique + update metadata)双层兜底。
+    //   跟同文件 ticketNo 生成的 maxAttempts=5 retry 是同模式(都是 InnoDB 竞争)。
+    const RETRYABLE_PRISMA_CODES = new Set(['P2002', 'P2034', 'P2010']);
+    const MAX_ATTEMPTS = 3;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        return await this.runUpsertSessionTx(dto, visitorName, channel);
+      } catch (e) {
+        lastError = e;
+        const isPrismaTxErr =
+          e instanceof Prisma.PrismaClientKnownRequestError && RETRYABLE_PRISMA_CODES.has(e.code);
+        if (isPrismaTxErr && attempt < MAX_ATTEMPTS - 1) {
+          const delay = 50 + Math.random() * 100;
+          this.logger.warn(
+            `upsertSession tx 冲突(${e.code}),attempt=${attempt + 1}/${MAX_ATTEMPTS} ` +
+              `backoff=${Math.round(delay)}ms`,
+          );
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw e;
+      }
+    }
+    // 不会到这里,留作 TS 类型安全
+    throw lastError;
+  }
+
+  private async runUpsertSessionTx(dto: UpsertSessionDto, visitorName: string, channel: number) {
     // cs-round-058:并发安全 — 事务内不能用 Prisma upsert。
     //   Prisma 把 upsert 翻译成「先 SELECT 后 INSERT/UPDATE」两步,MySQL REPEATABLE READ
     //   下两个并发 tx 都看不到对方未 commit 的 session,都尝试 create → 第二个
     //   P2002 失败 → 整个 tx rollback → user msg 也不写。prod session 66 就是
     //   这个问题(chat route 第二次并发调 upsertSession 撞 P2002 → assistant
     //   placeholder 没写 → AI 没回复)。
-    //   修法:tx.csSession.findUnique + 显式分支,create 失败 catch P2002 后
-    //   retry findUnique + update(对方刚 commit 的 session)。
+    //   修法:tx.csSession.findUnique + 显式分支,create 失败 catch P2002/P2034
+    //   (cs-round-071 扩展)后 retry findUnique + update(对方刚 commit 的 session)。
     const txResult = await this.prisma.$transaction(async (tx) => {
       let s = await tx.csSession.findUnique({
         where: { sessionKey: dto.sessionKey },
@@ -205,9 +241,12 @@ export class InternalService {
         } catch (e) {
           // cs-round-058:P2002 = 并发竞态(对方事务刚 create 了同 sessionKey)。
           //   重新 findUnique 一定能拿到,直接 update 它的 metadata 即可。
+          // cs-round-071:扩展同时判 P2034(deadlock) — P2002 catch 内的
+          //   update metadata 也可能撞死锁(8 个并发 update 同一 cs_session 行,
+          //   InnoDB row lock 争用),原 catch 只判 P2002 → 漏 → 50000。
           if (
             e instanceof Prisma.PrismaClientKnownRequestError &&
-            e.code === 'P2002'
+            (e.code === 'P2002' || e.code === 'P2034')
           ) {
             s = await tx.csSession.findUnique({
               where: { sessionKey: dto.sessionKey },
@@ -240,7 +279,8 @@ export class InternalService {
       // cs-round-056:首条 user msg 同步落库(同一事务,与 session atomic)
       // 仅当 dto.firstUserMessage 是非空字符串时才写(防御空串 / whitespace)
       const firstMsg = dto.firstUserMessage?.trim();
-      let createdMessage: { id: number; content: string; status: number; role: string } | null = null;
+      let createdMessage: { id: number; content: string; status: number; role: string } | null =
+        null;
       let assistantPlaceholder: { id: number; role: 'assistant'; status: 2 } | null = null;
       if (firstMsg) {
         const created = await tx.csMessage.create({
@@ -313,16 +353,14 @@ export class InternalService {
         //   注意:这里 this.realtime.server 是 Namespace 实例(socket.io v4 实测),
         //   .to(room).emit() 在该 namespace 的 room 集合里查询。
         //   prod session 119 验证:server.type=Namespace server.nsp.name=/realtime。
-        this.realtime.server
-          .to(`session:${session.id}`)
-          .emit('user_message', {
-            sessionId: session.id,
-            messageId: createdMessage.id,
-            role: 'user',
-            content: createdMessage.content,
-            status: createdMessage.status,
-            createdAt: new Date().toISOString(),
-          } as any);
+        this.realtime.server.to(`session:${session.id}`).emit('user_message', {
+          sessionId: session.id,
+          messageId: createdMessage.id,
+          role: 'user',
+          content: createdMessage.content,
+          status: createdMessage.status,
+          createdAt: new Date().toISOString(),
+        } as any);
       } catch (e) {
         this.logger.warn(
           `upsertSession user_message emit 失败 session=${session.id}: ${(e as Error).message}`,
