@@ -9,7 +9,7 @@
 #   4. 等 backend ready → 申请 Let's Encrypt 证书(4 个域名:app/chat/api 三子域 + 裸域)
 #   5. 重启 nginx 加载证书
 #   6. 健康检查 + 打印访问 URL
-#   7. 安装 SSL 自动续期 cron(每天凌晨 3 点跑 certbot renew)
+#   7. 安装 SSL 自动续期 cron(每天凌晨 3 点跑 certbot renew)+ 证书到期巡检 cron(每天 9 点)
 #
 # 用法:
 #   sudo bash deploy/scripts/install.sh
@@ -186,6 +186,12 @@ echo ""
 # ============== 5. 申请 Let's Encrypt 证书 ==============
 step "5. 申请 SSL 证书(4 个域名:app/chat/api 三子域 + 裸域 suhhai.cn)"
 
+# ⚠️ 已知限制:从零全新装机时,此时 nginx 因 `ssl_certificate` 尚不存在而起不来
+#    → 80 端口不通 → certbot webroot 拿不到 HTTP-01 token → 本步骤会失败。
+#    需先手工备好证书(把 fullchain.pem / privkey.pem 放进 $SSL_DIR/live/<域名>/)
+#    再走本流程。
+#    已装好的机器不受影响(certbot 续期走的是 webroot,nginx 正常服务)。
+
 # 检查证书是否已存在
 if [ -d "$SSL_DIR/live/$APP_DOMAIN" ] && [ -f "$SSL_DIR/live/$APP_DOMAIN/fullchain.pem" ]; then
   log "证书已存在,跳过申请"
@@ -289,23 +295,51 @@ for i in $(seq 1 10); do
 done
 echo ""
 
-# ============== 7. 配置 SSL 自动续期 ==============
-step "7. 配置 SSL 自动续期(cron,每天凌晨 3 点跑)"
+# ============== 7. 配置 SSL 自动续期 + 证书到期巡检 ==============
+step "7. 配置 SSL 自动续期 + 证书到期巡检(cron)"
 
 RENEW_SCRIPT="$DEPLOY_DIR/scripts/renew-ssl.sh"
+CHECK_SCRIPT="$DEPLOY_DIR/scripts/check-cert-expiry.sh"
+
+# 本次要写回 crontab 的行 + 对应的去重关键词。
+# 去重关键词只包含「这次确实会重写」的脚本 —— 没装的脚本不该把机器上已有的行删掉
+# 却又写不回来(那又是另一种静默失败)。
+CRON_REWRITE_PATTERN="renew-ssl|ssl-renew"
+CRON_NEW_LINES=""
+
 if [ ! -f "$RENEW_SCRIPT" ]; then
-  warn "renew-ssl.sh 不存在,跳过 cron 安装"
+  warn "renew-ssl.sh 不存在,跳过续期 cron 安装"
 else
   chmod +x "$RENEW_SCRIPT"
   # 写 cron(每天 3:30 跑,避免和 certbot 自身轮询冲突)
   # 失败告警:脚本非 0 退出时写 syslog(tag=ssl-renew),避免静默失败无人知晓
   CRON_LINE="30 3 * * * bash $RENEW_SCRIPT >> $LOG_DIR/ssl-renew.log 2>&1 || logger -t ssl-renew 'SSL renew FAILED'"
+  CRON_NEW_LINES="${CRON_NEW_LINES}${CRON_LINE}
+"
+  log "cron 已安装: $CRON_LINE"
+fi
+
+if [ ! -f "$CHECK_SCRIPT" ]; then
+  warn "check-cert-expiry.sh 不存在,跳过巡检 cron 安装"
+else
+  chmod +x "$CHECK_SCRIPT"
+  # 巡检 cron(每天 9:00,跟 3:30 的续期错开):证书剩余 < 20 天或已过期 → 脚本非 0 退出
+  # → cron 写 syslog(tag=ssl-cert)。续期只写 syslog 没人看等于没告警(静默失败 95 天),
+  # 所以补一条主动巡检。
+  CHECK_CRON_LINE="0 9 * * * bash $CHECK_SCRIPT >> $LOG_DIR/cert-expiry.log 2>&1 || logger -t ssl-cert 'cert expiry check FAILED'"
+  # 去重关键词加上巡检脚本名(cert-expiry 是 check-cert-expiry 的子串,一起覆盖)
+  CRON_REWRITE_PATTERN="$CRON_REWRITE_PATTERN|check-cert-expiry|cert-expiry"
+  CRON_NEW_LINES="${CRON_NEW_LINES}${CHECK_CRON_LINE}
+"
+  log "cron 已安装: $CHECK_CRON_LINE"
+fi
+
+if [ -n "$CRON_NEW_LINES" ]; then
   # 去重必须同时匹配 renew-ssl 和 ssl-renew 两种写法(历史上手工残桩写的是 ssl-renew.sh,
   # 旧 guard 只匹配 renew-ssl,坏行删不掉,续期静默失败 95 天)。
   # || true 必须带:grep 无输出时返回 1,set -e + pipefail 会让子 shell 直接退出,
-  # 结果 CRON_LINE 写不进去且 crontab 被清空。
-  ( crontab -u ubuntu -l 2>/dev/null | grep -vE 'renew-ssl|ssl-renew' || true ; echo "$CRON_LINE" ) | crontab -u ubuntu -
-  log "cron 已安装: $CRON_LINE"
+  # 结果 cron 行写不进去且 crontab 被清空。
+  ( crontab -u ubuntu -l 2>/dev/null | grep -vE "$CRON_REWRITE_PATTERN" || true ; printf '%s' "$CRON_NEW_LINES" ) | crontab -u ubuntu -
   echo "查看: crontab -u ubuntu -l"
 fi
 
