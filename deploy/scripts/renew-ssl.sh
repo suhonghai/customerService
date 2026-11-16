@@ -15,7 +15,9 @@ LOG_TAG="[renew-ssl]"
 
 # app/chat/api 三者共用一张 app.suhhai.cn 证书(SAN 覆盖);suhhai.cn 裸域是独立一张证书,
 # 必须单独列入,否则裸域续了也不会触发 nginx reload
-DOMAINS=("app.suhhai.cn" "chat.suhhai.cn" "api.suhhai.cn" "suhhai.cn")
+# 注意:这里只列真实存在的证书目录 —— chat/api 没有独立目录(它们的证书在 app.suhhai.cn 里),
+# 列进去只会每次产生两条 "证书文件不存在" 噪音
+DOMAINS=("app.suhhai.cn" "suhhai.cn")
 
 log()  { printf '%s %s %s\n' "$(date '+%F %T')" "$LOG_TAG" "$*"; }
 warn() { printf '%s %s WARN: %s\n' "$(date '+%F %T')" "$LOG_TAG" "$*" >&2; }

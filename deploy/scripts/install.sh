@@ -6,7 +6,7 @@
 #   1. 前置检查(docker / 目录 / DNS)
 #   2. docker load 5 个镜像
 #   3. 第一次启动(mysql + chroma + backend + frontend + ai-cs-demo + nginx + certbot)
-#   4. 等 backend ready → 申请 Let's Encrypt 证书(3 个域名)
+#   4. 等 backend ready → 申请 Let's Encrypt 证书(4 个域名:app/chat/api 三子域 + 裸域)
 #   5. 重启 nginx 加载证书
 #   6. 健康检查 + 打印访问 URL
 #   7. 安装 SSL 自动续期 cron(每天凌晨 3 点跑 certbot renew)
@@ -19,7 +19,7 @@
 #   - ubuntu 用户在 docker 组(或用 sudo 跑)
 #   - 5 个镜像已 load 到 /opt/w11-erp/images/w11-erp-images.tar
 #   - 项目部署文件已上传到 /opt/w11-erp/(compose + .env + 子包 .env + deploy/)
-#   - 3 个子域名已 DNS 解析到服务器公网 IP
+#   - 3 个子域名已 DNS 解析到服务器公网 IP(裸域 suhhai.cn 建议也解析,缺了只影响裸域)
 # =============================================================================
 
 set -euo pipefail
@@ -40,7 +40,12 @@ PRIMARY_DOMAIN="suhhai.cn"
 APP_DOMAIN="app.suhhai.cn"
 CHAT_DOMAIN="chat.suhhai.cn"
 API_DOMAIN="api.suhhai.cn"
+# 3 个子域共用一张 SAN 证书(certbot 落盘到 live/app.suhhai.cn/)
 ALL_DOMAINS=("$APP_DOMAIN" "$CHAT_DOMAIN" "$API_DOMAIN")
+# 裸域 suhhai.cn 在生产上是【独立一张证书】(live/suhhai.cn/),nginx 引用该路径。
+# 不能把它塞进 ALL_DOMAINS —— 那会变成一张大 SAN 证书,与线上结构不符、nginx 引用路径对不上。
+# 所以裸域走单独的 certonly(见第 5 步)。
+CERT_DIRS=("$APP_DOMAIN" "$PRIMARY_DOMAIN")
 
 # ============== 颜色 ==============
 RED='\033[0;31m'
@@ -179,7 +184,7 @@ done
 echo ""
 
 # ============== 5. 申请 Let's Encrypt 证书 ==============
-step "5. 申请 SSL 证书(3 个域名)"
+step "5. 申请 SSL 证书(4 个域名:app/chat/api 三子域 + 裸域 suhhai.cn)"
 
 # 检查证书是否已存在
 if [ -d "$SSL_DIR/live/$APP_DOMAIN" ] && [ -f "$SSL_DIR/live/$APP_DOMAIN/fullchain.pem" ]; then
@@ -210,12 +215,44 @@ else
   log "证书申请成功"
 fi
 
+# --- 裸域 suhhai.cn:独立一张证书 ---
+# 不能并进上面的 SAN 证书(线上结构就是 live/suhhai.cn/ 独立目录,nginx 引用该路径)。
+# 裸域是可选的:签不下来只 warn,不中断整套装机(3 个子域才是主力)。
+if [ -f "$SSL_DIR/live/$PRIMARY_DOMAIN/fullchain.pem" ]; then
+  log "裸域证书已存在,跳过申请"
+else
+  # DNS 预检:裸域没解析到本机时 certbot 会验证失败,提前给个明确提示
+  BARE_RESOLVED=$(dig +short +time=5 +tries=1 "$PRIMARY_DOMAIN" @8.8.8.8 2>/dev/null | head -1 || true)
+  if [ -z "$BARE_RESOLVED" ]; then
+    warn "DNS 未解析: $PRIMARY_DOMAIN — 裸域证书可能签不下来(不影响 3 个子域)"
+  fi
+
+  echo ""
+  echo "申请裸域证书: -d $PRIMARY_DOMAIN"
+  if docker run --rm \
+      -v "$SSL_DIR:/etc/letsencrypt:rw" \
+      -v "$CERTBOT_WEBROOT:/var/www/certbot:rw" \
+      certbot/certbot:latest \
+      certonly \
+        --webroot \
+        --webroot-path /var/www/certbot \
+        --non-interactive \
+        --agree-tos \
+        --register-unsafely-without-email \
+        --keep-until-expiring \
+        -d "$PRIMARY_DOMAIN"; then
+    log "裸域证书申请成功"
+  else
+    warn "裸域 $PRIMARY_DOMAIN 证书申请失败,不中断装机(可手工补签: certbot certonly -d $PRIMARY_DOMAIN)"
+  fi
+fi
+
 echo ""
 echo "证书目录:"
 ls -la "$SSL_DIR/live/" 2>&1
 echo ""
 echo "证书有效期:"
-for d in "${ALL_DOMAINS[@]}"; do
+for d in "${CERT_DIRS[@]}"; do
   if [ -f "$SSL_DIR/live/$d/fullchain.pem" ]; then
     openssl x509 -in "$SSL_DIR/live/$d/fullchain.pem" -noout -dates 2>/dev/null | sed "s/^/  $d: /"
   fi
