@@ -261,8 +261,13 @@ if [ ! -f "$RENEW_SCRIPT" ]; then
 else
   chmod +x "$RENEW_SCRIPT"
   # 写 cron(每天 3:30 跑,避免和 certbot 自身轮询冲突)
-  CRON_LINE="30 3 * * * $RENEW_SCRIPT >> $LOG_DIR/ssl-renew.log 2>&1"
-  ( crontab -u ubuntu -l 2>/dev/null | grep -v 'renew-ssl' ; echo "$CRON_LINE" ) | crontab -u ubuntu -
+  # 失败告警:脚本非 0 退出时写 syslog(tag=ssl-renew),避免静默失败无人知晓
+  CRON_LINE="30 3 * * * bash $RENEW_SCRIPT >> $LOG_DIR/ssl-renew.log 2>&1 || logger -t ssl-renew 'SSL renew FAILED'"
+  # 去重必须同时匹配 renew-ssl 和 ssl-renew 两种写法(历史上手工残桩写的是 ssl-renew.sh,
+  # 旧 guard 只匹配 renew-ssl,坏行删不掉,续期静默失败 95 天)。
+  # || true 必须带:grep 无输出时返回 1,set -e + pipefail 会让子 shell 直接退出,
+  # 结果 CRON_LINE 写不进去且 crontab 被清空。
+  ( crontab -u ubuntu -l 2>/dev/null | grep -vE 'renew-ssl|ssl-renew' || true ; echo "$CRON_LINE" ) | crontab -u ubuntu -
   log "cron 已安装: $CRON_LINE"
   echo "查看: crontab -u ubuntu -l"
 fi

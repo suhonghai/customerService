@@ -13,16 +13,21 @@ SSL_DIR="/opt/w11-erp/ssl"
 CERTBOT_WEBROOT="/var/www/certbot"
 LOG_TAG="[renew-ssl]"
 
-DOMAINS=("app.suhhai.cn" "chat.suhhai.cn" "api.suhhai.cn")
+# app/chat/api 三者共用一张 app.suhhai.cn 证书(SAN 覆盖);suhhai.cn 裸域是独立一张证书,
+# 必须单独列入,否则裸域续了也不会触发 nginx reload
+DOMAINS=("app.suhhai.cn" "chat.suhhai.cn" "api.suhhai.cn" "suhhai.cn")
 
 log()  { printf '%s %s %s\n' "$(date '+%F %T')" "$LOG_TAG" "$*"; }
-fail() { printf '%s %s ERROR: %s\n' "$(date '+%F %T')" "$LOG_TAG" "$*" >&2; }
+warn() { printf '%s %s WARN: %s\n' "$(date '+%F %T')" "$LOG_TAG" "$*" >&2; }
+# fail 会以非 0 退出,让 cron 行的 `|| logger -t ssl-renew 'SSL renew FAILED'` 触发告警
+fail() { printf '%s %s ERROR: %s\n' "$(date '+%F %T')" "$LOG_TAG" "$*" >&2; exit 1; }
 
 log "开始 SSL 续期检查"
 
 # 检查 certbot 容器在不在(被 install.sh 装了常驻容器)
+# 注意:续期走的是下面的 `docker run --rm`,不依赖常驻容器,所以这里只 warn 不中断
 if ! docker ps --format '{{.Names}}' | grep -q 'certbot'; then
-  fail "certbot 容器未运行,跳过本次续期"
+  warn "certbot 常驻容器未运行(不影响下面的 docker run 续期)"
 fi
 
 # 跑 certbot renew(对所有证书)
@@ -58,7 +63,8 @@ if [ "$RENEWED" = "1" ]; then
     if docker exec w11-erp-prod-nginx nginx -s reload 2>/dev/null; then
       log "nginx 已 reload"
     else
-      log "[WARN] nginx reload 失败,需要手动检查"
+      # 证书已换但 nginx 还在用旧证书,属于真失败,非 0 退出触发 cron 告警
+      fail "nginx reload 失败,需要手动检查"
     fi
   fi
 fi
