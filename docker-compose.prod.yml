@@ -140,6 +140,7 @@ services:
       - ./deploy/nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
       - /opt/w11-erp/ssl:/etc/nginx/ssl:ro
       - /var/www/certbot:/var/www/certbot:ro
+      - /opt/w11-erp/pet-assets:/var/www/pet-assets:ro
     depends_on:
       - erp-admin-backend
       - erp-admin-frontend
