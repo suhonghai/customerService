@@ -30,8 +30,17 @@ LOG_DIR="${LOG_DIR:-/opt/w11-erp/logs}"
 LOG_FILE="${LOG_FILE:-$LOG_DIR/cert-expiry.log}"
 # 告警阈值(天)。certbot 续期窗口 30 天,这里取 20 天留 10 天缓冲。
 WARN_DAYS="${WARN_DAYS:-20}"
-# 可选告警 webhook(企业微信 / 钉钉 / 自建)。为空则完全不推。
+# 可选告警 webhook(飞书群机器人)。为空则完全不推。
 SSL_ALERT_WEBHOOK="${SSL_ALERT_WEBHOOK:-}"
+# webhook URL 放在服务器上的独立 env 文件里(不入 git):
+#   /opt/w11-erp/.env.ssl-alert  内容一行  export SSL_ALERT_WEBHOOK=https://...
+# 同一台机器上的其它项目(如 baobaotao-watcher)已经在用飞书机器人,
+# 直接复用同一个群机器人即可,不必再申请一个。
+SSL_ALERT_ENV_FILE="${SSL_ALERT_ENV_FILE:-/opt/w11-erp/.env.ssl-alert}"
+if [ -z "$SSL_ALERT_WEBHOOK" ] && [ -f "$SSL_ALERT_ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$SSL_ALERT_ENV_FILE"
+fi
 
 LOG_TAG="[cert-expiry]"
 SYSLOG_TAG="ssl-cert"
@@ -132,12 +141,30 @@ else
   syslog "cert expiry check FAILED: ${alert_msg}"
 fi
 
-# 可选 webhook(企业微信 / 钉钉 / 自建)。没配就完全跳过,curl 失败也不影响退出码。
+# 飞书群机器人告警。payload 必须是飞书格式:
+#   {"msg_type":"text","content":{"text":"..."}}
+# ⚠️ 之前这里用的是企业微信/钉钉的 {"msg":"..."} 格式 —— 飞书会返回 400,
+#    而外面包着 || true 会把失败静默吞掉,等于没告警。格式必须按飞书来。
 if [ -n "$SSL_ALERT_WEBHOOK" ] && [ "$exit_code" -ne 0 ]; then
-  json_msg="$(printf '%s' "$alert_msg" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')"
-  curl -s -m 10 -X POST -H 'Content-Type: application/json' \
-    -d "{\"msg\":\"SSL 证书到期告警: ${json_msg}\"}" \
-    "$SSL_ALERT_WEBHOOK" >/dev/null 2>&1 || true
+  alert_text="🚨 [SSL证书到期告警] $(hostname) @ $(date '+%F %T')
+详情: ${alert_msg}"
+  if command -v jq >/dev/null 2>&1; then
+    payload="$(jq -nc --arg t "$alert_text" '{msg_type:"text",content:{text:$t}}')"
+  else
+    # jq 缺失时手工转义(只覆盖 JSON 必需的三个字符)
+    esc="$(printf '%s' "$alert_text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')"
+    payload="{\"msg_type\":\"text\",\"content\":{\"text\":\"${esc}\"}}"
+  fi
+  if curl -sf -m 10 -X POST "$SSL_ALERT_WEBHOOK" \
+      -H 'Content-Type: application/json' \
+      -d "$payload" >/dev/null; then
+    # 不要把 webhook URL 写进日志 —— 那是 secret,日志会被人翻到
+    emit "飞书告警已推送"
+  else
+    # 推送失败必须留痕,否则又变成「以为告警了其实没发」
+    emit "ERROR: 飞书推送失败(检查 .env.ssl-alert 里的 webhook 是否可达)"
+    syslog "cert expiry FEISHU push FAILED"
+  fi
 fi
 
 exit "$exit_code"

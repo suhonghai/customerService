@@ -7,6 +7,8 @@
 .env.test
 .env.uat
 .env.production
+# 飞书告警 webhook(secret,只在服务器上)
+.env.ssl-alert
 # .env.example 是模板,允许入仓
 
 # ====== MySQL / Chroma 本地数据 ======

@@ -343,6 +343,29 @@ if [ -n "$CRON_NEW_LINES" ]; then
   echo "查看: crontab -u ubuntu -l"
 fi
 
+echo ""
+# ============== 8. 巡检告警通道(飞书机器人)==============
+step "8. 配置巡检告警通道(飞书机器人)"
+
+# 证书巡检发现异常时要主动推一条到飞书,不然还是「只写 syslog 没人看」。
+# webhook URL 是 secret,不进 git,单独放服务器上的 .env.ssl-alert:
+#   export SSL_ALERT_WEBHOOK=https://open.feishu.cn/open-apis/bot/v2/hook/xxxx
+# 同一台机器上的其它项目(如 baobaotao-watcher)通常已经在用同一个群机器人,
+# 直接复用即可,不必新申请。
+SSL_ALERT_ENV_FILE="$PROJECT_ROOT/.env.ssl-alert"
+if [ -f "$SSL_ALERT_ENV_FILE" ]; then
+  log "告警通道已配置: $SSL_ALERT_ENV_FILE(不动)"
+elif [ -n "${FEISHU_WEBHOOK:-}" ]; then
+  printf 'export SSL_ALERT_WEBHOOK=%s\n' "$FEISHU_WEBHOOK" >"$SSL_ALERT_ENV_FILE"
+  chmod 600 "$SSL_ALERT_ENV_FILE"
+  log "告警通道已写入: $SSL_ALERT_ENV_FILE"
+else
+  printf '# 填上飞书群机器人 webhook 地址后取消注释,证书巡检异常会主动推一条\n# export SSL_ALERT_WEBHOOK=https://open.feishu.cn/open-apis/bot/v2/hook/xxxx\n' >"$SSL_ALERT_ENV_FILE"
+  chmod 600 "$SSL_ALERT_ENV_FILE"
+  warn "未配置飞书 webhook,巡检异常只写 syslog(tag=ssl-cert)+ $LOG_DIR/cert-expiry.log"
+  warn "要启用主动推送:把 URL 填进 $SSL_ALERT_ENV_FILE 后取消注释"
+fi
+
 # ============== 8. 健康检查 + 打印访问 URL ==============
 step "8. 健康检查"
 
